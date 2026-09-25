@@ -1,0 +1,81 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  labels:
+    app: gitlab
+  name: gitlab-rhads-x509
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+data:
+  install-fulcio-ca.sh: |
+    #!/bin/bash
+    set -euo pipefail
+    URL="${FULCIO_ROOT_CERT_URL:-}"
+    if [ -n "${URL}" ]; then
+      echo "RHADS: fetching Fulcio CA from ${URL}"
+      i=0
+      while [ "${i}" -lt 36 ]; do
+        if curl -skf --max-time 8 "${URL}" -o /tmp/fulcio-rhads.pem && grep -q "BEGIN CERTIFICATE" /tmp/fulcio-rhads.pem; then
+          mkdir -p /etc/gitlab/trusted-certs /opt/gitlab/embedded/ssl/certs
+          cp /tmp/fulcio-rhads.pem /etc/gitlab/trusted-certs/fulcio-rhads.crt
+          cp /tmp/fulcio-rhads.pem /opt/gitlab/embedded/ssl/certs/fulcio-rhads.pem
+          if [ -f /opt/gitlab/embedded/ssl/cert.pem ] && ! grep -q "fulcio.rhads-demo" /opt/gitlab/embedded/ssl/cert.pem; then
+            cat /tmp/fulcio-rhads.pem >> /opt/gitlab/embedded/ssl/cert.pem
+          fi
+          if [ -x /opt/gitlab/embedded/bin/c_rehash ]; then
+            /opt/gitlab/embedded/bin/c_rehash /opt/gitlab/embedded/ssl/certs >/dev/null 2>&1 || true
+          fi
+          echo "RHADS: Fulcio CA installed"
+          break
+        fi
+        i=$((i + 1))
+        echo "RHADS: waiting for Fulcio (${i}/36)"
+        sleep 5
+      done
+    fi
+    exit 0
+
+  zz_rhads_x509.rb: |
+    # frozen_string_literal: true
+    # gitsign/Fulcio certs are code-signing, short-lived, SAN-only, and have no CRL.
+    # GitLab's stock X.509 path is S/MIME (emailProtection + CRL) and shows Unverified.
+
+    module Rhads
+      module X509SignaturePatch
+        def verification_status
+          return :unverified if x509_certificate.nil? ||
+            x509_certificate.revoked? ||
+            !verified_signature ||
+            signed_by_user.nil?
+
+          emails = Array(certificate_emails)
+          if signed_by_user.verified_emails.include?(@email.to_s.downcase) &&
+              emails.any? { |ce| ce.to_s.casecmp?(@email.to_s) }
+            :verified
+          else
+            :unverified
+          end
+        end
+
+        def cert_store
+          store = super
+          store.purpose = OpenSSL::X509::PURPOSE_ANY if store.respond_to?(:purpose=)
+          store.flags = OpenSSL::X509::V_FLAG_NO_CHECK_TIME
+          %w[
+            /etc/gitlab/trusted-certs/fulcio-rhads.crt
+            /opt/gitlab/embedded/ssl/certs/fulcio-rhads.pem
+          ].each do |path|
+            next unless File.readable?(path)
+
+            store.add_file(path)
+          rescue OpenSSL::X509::StoreError
+            nil
+          end
+          store
+        end
+      end
+    end
+
+    Rails.application.config.to_prepare do
+      Gitlab::X509::Signature.prepend(Rhads::X509SignaturePatch)
+    end

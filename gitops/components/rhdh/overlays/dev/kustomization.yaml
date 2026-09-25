@@ -1,0 +1,25 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: backstage
+resources:
+  - ../../base
+  - dynamic-plugins-rhdh.yaml
+  - rbac-policy.yaml
+  - catalog-static.yaml
+  - oidc-watchdog.yaml
+
+configMapGenerator:
+  - name: developer-hub-config
+    files:
+      - app-config.yaml
+    options:
+      disableNameSuffixHash: true
+  - name: topology-camel-icon
+    files:
+      - camel.svg
+      - inject-camel-topology-icon.py
+    options:
+      disableNameSuffixHash: true
+
+generatorOptions:
+  disableNameSuffixHash: true

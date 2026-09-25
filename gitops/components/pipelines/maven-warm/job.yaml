@@ -1,0 +1,133 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: rhads-maven-warm
+  namespace: rhads-ci
+  labels:
+    app.kubernetes.io/part-of: rhads-demo
+    app.kubernetes.io/component: maven-cache
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    argocd.argoproj.io/sync-wave: "20"
+    argocd.argoproj.io/sync-options: Replace=true
+spec:
+  backoffLimit: 4
+  ttlSecondsAfterFinished: 86400
+  activeDeadlineSeconds: 3600
+  template:
+    spec:
+      restartPolicy: OnFailure
+      serviceAccountName: pipeline
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: node-role.kubernetes.io/worker
+                    operator: Exists
+                  - key: node-role.kubernetes.io/control-plane
+                    operator: DoesNotExist
+      initContainers:
+        - name: mvn
+          image: registry.access.redhat.com/ubi9/openjdk-21:1.23
+          env:
+            - name: MAVEN_OPTS
+              value: "-Dmaven.wagon.http.ssl.insecure=true -Dmaven.wagon.http.ssl.allowall=true"
+          volumeMounts:
+            - name: m2
+              mountPath: /m2
+            - name: poms
+              mountPath: /poms
+              readOnly: true
+            - name: settings
+              mountPath: /settings
+              readOnly: true
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              set -euo pipefail
+              echo "[SSSC] Preload Maven local repository for Quarkus Flow + Kafka demo pipelines"
+              export MAVEN_OPTS
+              MVN=(mvn -B -ntp -s /settings/settings.xml -Dmaven.repo.local=/m2 -DskipTests)
+              warm_one() {
+                local name="$1"
+                local dir="/tmp/work/${name}"
+                echo "===== warmup ${name} ====="
+                rm -rf "${dir}"
+                mkdir -p "${dir}/src/main/java/x" "${dir}/src/main/resources"
+                cp "/poms/${name}.xml" "${dir}/pom.xml"
+                printf 'package x;\npublic class Dummy {}\n' > "${dir}/src/main/java/x/Dummy.java"
+                : > "${dir}/src/main/resources/application.properties"
+                ( cd "${dir}" && "${MVN[@]}" package )
+              }
+              mkdir -p /m2
+              warm_one quarkus-flow-kafka
+              touch /m2/.rhads-seeded
+              echo "Maven local repo: $(du -sh /m2 | awk '{print $1}')"
+              tar -C /m2 --exclude=lost+found --exclude=m2-seed.tar.gz -czf /tmp/m2-seed.tar.gz .
+              ls -lh /tmp/m2-seed.tar.gz
+              cp -f /tmp/m2-seed.tar.gz /m2/m2-seed.tar.gz
+              echo "PASS: tarball written"
+      containers:
+        - name: publish
+          image: registry.access.redhat.com/ubi9/ubi:9.6
+          env:
+            - name: NEXUS
+              value: http://nexus.nexus.svc:8081
+            - name: NEXUS_USER
+              value: admin
+            - name: NEXUS_PASS
+              value: admin123
+            - name: SEED_URL
+              value: http://nexus.nexus.svc:8081/repository/raw-hosted/rhads/m2-seed.tar.gz
+          volumeMounts:
+            - name: m2
+              mountPath: /m2
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              set -euo pipefail
+              echo "[SSSC] Publish m2-seed.tar.gz to Nexus raw-hosted"
+              AUTH=(-u "${NEXUS_USER}:${NEXUS_PASS}")
+              for i in $(seq 1 60); do
+                if curl -sf "${NEXUS}/service/rest/v1/status" >/dev/null; then
+                  break
+                fi
+                sleep 5
+              done
+              if ! curl -sf "${AUTH[@]}" "${NEXUS}/service/rest/v1/repositories/raw/hosted/raw-hosted" >/dev/null; then
+                curl -sf "${AUTH[@]}" -X POST "${NEXUS}/service/rest/v1/repositories/raw/hosted" \
+                  -H 'Content-Type: application/json' \
+                  -d '{"name":"raw-hosted","online":true,"storage":{"blobStoreName":"default","strictContentTypeValidation":false,"writePolicy":"ALLOW"}}' \
+                  || echo "raw-hosted create returned non-2xx"
+              fi
+              test -s /m2/m2-seed.tar.gz || test -s /tmp/m2-seed.tar.gz
+              SEED_FILE=/m2/m2-seed.tar.gz
+              [ -s "${SEED_FILE}" ] || SEED_FILE=/tmp/m2-seed.tar.gz
+              ls -lh "${SEED_FILE}"
+              curl -sf "${AUTH[@]}" --upload-file "${SEED_FILE}" "${SEED_URL}"
+              curl -sfI "${SEED_URL}" | head -8
+              echo "PASS: ${SEED_URL}"
+              SYFT_TGZ=/tmp/syft_1.27.1_linux_amd64.tar.gz
+              SYFT_URL="${NEXUS}/repository/raw-hosted/rhads/syft_1.27.1_linux_amd64.tar.gz"
+              if curl -fsSL --retry 2 --max-time 90 -o "${SYFT_TGZ}" \
+                https://github.com/anchore/syft/releases/download/v1.27.1/syft_1.27.1_linux_amd64.tar.gz; then
+                curl -sf "${AUTH[@]}" --upload-file "${SYFT_TGZ}" "${SYFT_URL}"
+                echo "PASS: ${SYFT_URL}"
+              else
+                echo "WARN: could not cache Syft on Nexus; generate-sbom will try GitHub"
+              fi
+      volumes:
+        - name: m2
+          persistentVolumeClaim:
+            claimName: rhads-m2-warm
+        - name: poms
+          configMap:
+            name: rhads-maven-warm-poms
+        - name: settings
+          configMap:
+            name: rhads-maven-settings
+            items:
+              - key: settings.xml
+                path: settings.xml

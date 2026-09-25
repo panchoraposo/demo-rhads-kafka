@@ -1,0 +1,9 @@
+# Re-seed GitLab after an omnibus rebuild, then refresh Developer Hub secrets.
+- hosts: localhost
+  gather_facts: false
+  vars_files:
+    - ../vars/demo.yaml
+  roles:
+    - openshift-config
+    - gitlab-config
+    - rhdh-config

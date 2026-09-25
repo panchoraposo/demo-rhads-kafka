@@ -1,0 +1,95 @@
+# Default values for quarkus-flow-kafka trip planner.
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+replicaCount: 1
+runtime: quarkus
+
+image:
+  pullPolicy: Always
+  registry: 
+  host: 
+  organization: 
+  name: 
+  tag: 
+  password: 
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+
+  annotations: {}
+  name: ""
+
+podAnnotations: {}
+
+podSecurityContext: 
+  runAsNonRoot: true
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+
+service:
+  type: ClusterIP
+  port: 8080
+
+route:
+  host: ""
+  path: /
+
+livenessProbe:
+  httpGet:
+    path: /q/health/live
+    port: http
+  initialDelaySeconds: 45
+  periodSeconds: 10
+  timeoutSeconds: 5
+
+readinessProbe:
+  httpGet:
+    path: /q/health/ready
+    port: http
+  initialDelaySeconds: 15
+  periodSeconds: 10
+  timeoutSeconds: 5
+
+resources:
+  requests:
+    cpu: 200m
+    memory: 1Gi
+  limits:
+    cpu: "1"
+    memory: 2Gi
+
+maas:
+  enabled: true
+  baseUrl: https://maas-rhdp.apps.maas.redhatworkshops.io/v1/
+  model: qwen3-14b
+
+kafka:
+  bootstrapServers: rhads-kafka-kafka-bootstrap.kafka.svc:9092
+
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 100
+  targetCPUUtilizationPercentage: 80
+  # targetMemoryUtilizationPercentage: 80
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}
+
+user:
+
+targetNamespace: ${{ values.targetNamespace }}

@@ -1,0 +1,57 @@
+- hosts: localhost
+  gather_facts: false
+  vars_files:
+    - ../vars/demo.yaml
+  tasks:
+    - name: Delete Argo CD Applications
+      kubernetes.core.k8s:
+        api_version: argoproj.io/v1alpha1
+        kind: Application
+        namespace: "{{ gitops_namespace }}"
+        state: absent
+      ignore_errors: true
+
+    - name: Probe cluster SSO realm before deleting namespaces
+      ansible.builtin.uri:
+        url: "https://sso.{{ lookup('pipe', 'oc get dnses.config.openshift.io cluster -o jsonpath={.spec.baseDomain}') }}/realms/sso/.well-known/openid-configuration"
+        method: GET
+        status_code: [200, 404, 502, 503]
+        validate_certs: false
+        timeout: 10
+      register: uninstall_sso_probe
+      failed_when: false
+
+    - name: Detect workshop external StorageCluster
+      ansible.builtin.command:
+        cmd: oc get storagecluster ocs-external-storagecluster -n openshift-storage -o name
+      register: uninstall_external_odf
+      changed_when: false
+      failed_when: false
+
+    - name: Delete demo namespaces
+      kubernetes.core.k8s:
+        api_version: v1
+        kind: Namespace
+        name: "{{ item }}"
+        state: absent
+      loop: "{{ uninstall_namespaces }}"
+      ignore_errors: true
+      vars:
+        uninstall_namespaces_all:
+          - gitlab
+          - backstage
+          - keycloak
+          - quay
+          - openshift-storage
+          - trusted-artifact-signer
+          - trusted-profile-analyzer
+          - stackrox
+          - rhads-ci
+          - nexus
+          - vault
+          - external-secrets
+          - external-secrets-operator
+          - openshift-devspaces
+          - dashboard
+        uninstall_skip: "{{ (['keycloak'] if uninstall_sso_probe.status | default(0) == 200 else []) + (['openshift-storage'] if uninstall_external_odf.rc | default(1) == 0 else []) }}"
+        uninstall_namespaces: "{{ uninstall_namespaces_all | reject('in', uninstall_skip) | list }}"

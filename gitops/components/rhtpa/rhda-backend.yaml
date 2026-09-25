@@ -1,0 +1,366 @@
+# RHDA backend (trustify-dependency-analytics) in front of this cluster's TPA.
+# The VS Code extension POSTs SBOMs to /api/v5/analysis; this service queries
+# TPA /api/v2/vulnerability/analyze. See:
+# https://developers.redhat.com/blog/2026/07/18/red-hat-dependency-analytics-works-your-private-trusted-profile-analyzer-instance
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: rhda-backend-service-ca
+  labels:
+    app: rhda-backend
+  annotations:
+    service.beta.openshift.io/inject-cabundle: "true"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: rhda-backend-postgresql
+  labels:
+    app: rhda-backend-postgresql
+type: Opaque
+stringData:
+  database-name: trustify_da
+  database-user: trustify_da
+  database-password: rhda-backend-demo
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: rhda-backend-secret
+  labels:
+    app: rhda-backend
+type: Opaque
+stringData:
+  rhtpa.client.id: cli
+  rhtpa.client.secret: cli-demo-secret
+  # Cluster SSO URL and TPA UI URL live in Secret rhda-backend-oidc,
+  # created by job-patch-rhda-oidc so Argo self-heal cannot revert them.
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: rhda-backend-postgresql
+  labels:
+    app: rhda-backend-postgresql
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rhda-backend-postgresql
+  labels:
+    app: rhda-backend-postgresql
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: rhda-backend-postgresql
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: rhda-backend-postgresql
+    spec:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: node-role.kubernetes.io/worker
+                    operator: Exists
+                  - key: node-role.kubernetes.io/control-plane
+                    operator: DoesNotExist
+      serviceAccountName: postgresql
+      securityContext:
+        fsGroup: 26
+      containers:
+        - name: postgresql
+          image: registry.redhat.io/rhel9/postgresql-16:latest
+          ports:
+            - containerPort: 5432
+          env:
+            - name: POSTGRESQL_USER
+              valueFrom:
+                secretKeyRef:
+                  name: rhda-backend-postgresql
+                  key: database-user
+            - name: POSTGRESQL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: rhda-backend-postgresql
+                  key: database-password
+            - name: POSTGRESQL_DATABASE
+              valueFrom:
+                secretKeyRef:
+                  name: rhda-backend-postgresql
+                  key: database-name
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              memory: 256Mi
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/pgsql/data
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: rhda-backend-postgresql
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: rhda-backend-postgresql
+  labels:
+    app: rhda-backend-postgresql
+spec:
+  ports:
+    - port: 5432
+      targetPort: 5432
+  selector:
+    app: rhda-backend-postgresql
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rhda-backend-redis
+  labels:
+    app: rhda-backend-redis
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: rhda-backend-redis
+  template:
+    metadata:
+      labels:
+        app: rhda-backend-redis
+    spec:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: node-role.kubernetes.io/worker
+                    operator: Exists
+                  - key: node-role.kubernetes.io/control-plane
+                    operator: DoesNotExist
+      containers:
+        - name: redis
+          image: docker.io/library/redis:7-alpine
+          args: ["redis-server", "--save", "", "--appendonly", "no"]
+          ports:
+            - containerPort: 6379
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+            limits:
+              memory: 128Mi
+          volumeMounts:
+            - name: data
+              mountPath: /data
+      volumes:
+        - name: data
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: rhda-backend-redis
+  labels:
+    app: rhda-backend-redis
+spec:
+  ports:
+    - port: 6379
+      targetPort: 6379
+  selector:
+    app: rhda-backend-redis
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rhda-backend
+  labels:
+    app: rhda-backend
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: rhda-backend
+  template:
+    metadata:
+      labels:
+        app: rhda-backend
+    spec:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: node-role.kubernetes.io/worker
+                    operator: Exists
+                  - key: node-role.kubernetes.io/control-plane
+                    operator: DoesNotExist
+      initContainers:
+        - name: import-service-ca
+          image: registry.redhat.io/ubi9/openjdk-21-runtime:1.23
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -euo pipefail
+              cp /etc/pki/java/cacerts /tmp/truststore/cacerts
+              chmod 644 /tmp/truststore/cacerts
+              if [ -s /tmp/service-ca/service-ca.crt ]; then
+                keytool -import -trustcacerts -noprompt \
+                  -keystore /tmp/truststore/cacerts \
+                  -storepass changeit \
+                  -alias openshift-service-ca \
+                  -file /tmp/service-ca/service-ca.crt
+              fi
+          volumeMounts:
+            - name: service-ca-bundle
+              mountPath: /tmp/service-ca
+              readOnly: true
+            - name: truststore
+              mountPath: /tmp/truststore
+      containers:
+        - name: rhda-backend
+          image: quay.io/tssc_demos/trustify-dependency-analytics:v2.0.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+            - name: management
+              containerPort: 9000
+          resources:
+            requests:
+              cpu: 250m
+              memory: 1Gi
+            limits:
+              cpu: "2"
+              memory: 2Gi
+          env:
+            - name: DB_REDIS_HOST
+              value: rhda-backend-redis
+            - name: DB_REDIS_PORT
+              value: "6379"
+            - name: DB_POSTGRES_HOST
+              value: rhda-backend-postgresql
+            - name: DB_POSTGRES_PORT
+              value: "5432"
+            - name: DB_POSTGRES_DATABASE
+              valueFrom:
+                secretKeyRef:
+                  name: rhda-backend-postgresql
+                  key: database-name
+            - name: DB_POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: rhda-backend-postgresql
+                  key: database-user
+            - name: DB_POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: rhda-backend-postgresql
+                  key: database-password
+            - name: DB_POSTGRES_SSLMODE
+              value: disable
+            - name: PROVIDER_RHTPA_HOST
+              value: https://server.trusted-profile-analyzer.svc:443
+            - name: PROVIDER_RHTPA_AUTH_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: rhda-backend-secret
+                  key: rhtpa.client.id
+            - name: PROVIDER_RHTPA_AUTH_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: rhda-backend-secret
+                  key: rhtpa.client.secret
+            - name: PROVIDER_RHTPA_AUTH_SERVER_URL
+              valueFrom:
+                secretKeyRef:
+                  name: rhda-backend-oidc
+                  key: rhtpa.auth.server.url
+            - name: BRANDING_EXPLORE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: rhda-backend-oidc
+                  key: branding.explore.url
+            - name: BRANDING_DISPLAY_NAME
+              value: Red Hat Trusted Profile Analyzer
+            - name: BRANDING_EXPLORE_TITLE
+              value: Open your Red Hat Trusted Profile Analyzer
+            - name: BRANDING_EXPLORE_DESCRIPTION
+              value: Red Hat Trusted Profile Analyzer holds SBOMs, advisories, and VEX for this cluster.
+            - name: MONITORING_ENABLED
+              value: "false"
+            - name: JAVA_TOOL_OPTIONS
+              value: -Djavax.net.ssl.trustStore=/tmp/truststore/cacerts -Djavax.net.ssl.trustStorePassword=changeit
+          volumeMounts:
+            - name: truststore
+              mountPath: /tmp/truststore
+              readOnly: true
+          livenessProbe:
+            httpGet:
+              path: /q/health/live
+              port: 9000
+            initialDelaySeconds: 45
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /q/health/ready
+              port: 9000
+            initialDelaySeconds: 30
+            periodSeconds: 15
+      volumes:
+        - name: service-ca-bundle
+          configMap:
+            name: rhda-backend-service-ca
+            optional: true
+        - name: truststore
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: rhda-backend
+  labels:
+    app: rhda-backend
+spec:
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+    - name: management
+      port: 9000
+      targetPort: 9000
+  selector:
+    app: rhda-backend
+---
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: rhda-backend
+  labels:
+    app: rhda-backend
+spec:
+  to:
+    kind: Service
+    name: rhda-backend
+  port:
+    targetPort: http
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect

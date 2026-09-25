@@ -1,0 +1,6 @@
+ansible-core>=2.16
+kubernetes>=31.0.0
+openshift>=0.13.2
+PyYAML>=6.0
+jmespath>=1.0.1
+jsonpatch>=1.33

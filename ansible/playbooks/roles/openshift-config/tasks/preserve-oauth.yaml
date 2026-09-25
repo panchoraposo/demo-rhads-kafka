@@ -1,0 +1,25 @@
+---
+# Workshop clusters (and similar sandboxes) authenticate the OpenShift console
+# against Keycloak realm `sso` at sso.apps.<cluster>. The demo must not replace
+# that identity provider with realm `backstage`.
+- name: Snapshot OpenShift OAuth identity providers
+  kubernetes.core.k8s_info:
+    api_version: config.openshift.io/v1
+    kind: OAuth
+    name: cluster
+  register: oauth_cluster
+  failed_when: false
+
+- name: Record OpenShift OAuth identity providers
+  ansible.builtin.set_fact:
+    oauth_identity_providers: "{{ oauth_cluster.resources[0].spec.identityProviders | default([]) }}"
+  when: oauth_cluster.resources | default([]) | length > 0
+
+- name: Record OpenShift OAuth identity providers (none configured)
+  ansible.builtin.set_fact:
+    oauth_identity_providers: []
+  when: oauth_cluster.resources | default([]) | length == 0
+
+- name: Show OpenShift OAuth issuers (must stay on realm sso)
+  ansible.builtin.debug:
+    msg: "{{ oauth_identity_providers | map(attribute='openID.issuer') | list }}"

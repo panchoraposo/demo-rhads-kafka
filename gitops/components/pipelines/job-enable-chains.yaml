@@ -1,0 +1,110 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: rhads-enable-tekton-chains
+  namespace: rhads-ci
+  labels:
+    app.kubernetes.io/part-of: rhads-demo
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    argocd.argoproj.io/sync-wave: "20"
+    argocd.argoproj.io/sync-options: Replace=true
+spec:
+  backoffLimit: 6
+  ttlSecondsAfterFinished: 600
+  template:
+    spec:
+      restartPolicy: OnFailure
+      serviceAccountName: rhads-chains
+      containers:
+        - name: enable
+          image: registry.redhat.io/openshift4/ose-cli:latest
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              set -euo pipefail
+              echo "[SSSC] Enabling Tekton Chains (keyless Fulcio + Rekor + TUF)"
+              oc get tektonconfig config >/dev/null
+              DOMAIN="$(oc get ingresses.config.openshift.io cluster -o jsonpath='{.spec.domain}')"
+              FULCIO="https://fulcio-server-trusted-artifact-signer.${DOMAIN}"
+              REKOR="https://rekor-server-trusted-artifact-signer.${DOMAIN}"
+              TUF="https://tuf-trusted-artifact-signer.${DOMAIN}"
+              echo "Fulcio: ${FULCIO}"
+              echo "Rekor:  ${REKOR}"
+              echo "TUF:    ${TUF}"
+
+              echo "--- copy Quay dockerconfig for Chains OCI storage ---"
+              if oc -n rhads-ci get secret quay-dockerconfig >/dev/null 2>&1; then
+                oc extract secret/quay-dockerconfig -n rhads-ci --to=/tmp/quay --confirm
+                CFG=""
+                if [ -f /tmp/quay/.dockerconfigjson ]; then
+                  CFG=/tmp/quay/.dockerconfigjson
+                elif [ -f /tmp/quay/config.json ]; then
+                  CFG=/tmp/quay/config.json
+                fi
+                if [ -n "${CFG}" ]; then
+                  oc -n openshift-pipelines create secret generic chains-quay-dockerconfig \
+                    --type=kubernetes.io/dockerconfigjson \
+                    --from-file=.dockerconfigjson="${CFG}" \
+                    --dry-run=client -o yaml | oc apply -f -
+                fi
+              else
+                echo "WARN: rhads-ci/quay-dockerconfig missing; Chains OCI push may fail"
+              fi
+
+              echo "--- TektonConfig spec.chain (keyless x509 / Fulcio) ---"
+              oc patch tektonconfig config --type merge --patch-file=/dev/stdin <<EOF
+              spec:
+                chain:
+                  disabled: false
+                  generateSigningSecret: false
+                  builder.id: https://tekton.dev/chains/v2
+                  artifacts.taskrun.format: in-toto
+                  # OCI only: deep-inspection PipelineRun attestations exceed the
+                  # 256KiB Kubernetes annotation limit when also stored as tekton.
+                  artifacts.taskrun.storage: "oci"
+                  artifacts.taskrun.signer: x509
+                  artifacts.pipelinerun.format: in-toto
+                  artifacts.pipelinerun.storage: "oci"
+                  artifacts.pipelinerun.signer: x509
+                  artifacts.pipelinerun.enable-deep-inspection: "true"
+                  artifacts.oci.format: simplesigning
+                  artifacts.oci.storage: oci
+                  artifacts.oci.signer: x509
+                  transparency.enabled: "true"
+                  transparency.url: "${REKOR}"
+                  signers.x509.fulcio.enabled: true
+                  signers.x509.fulcio.address: "${FULCIO}"
+                  signers.x509.fulcio.issuer: "https://kubernetes.default.svc"
+                  signers.x509.fulcio.provider: filesystem
+                  signers.x509.identity.token.file: /var/run/sigstore/cosign/oidc-token
+                  signers.x509.tuf.mirror.url: "${TUF}"
+                  options:
+                    deployments:
+                      tekton-chains-controller:
+                        spec:
+                          template:
+                            spec:
+                              volumes:
+                                - name: chains-quay-dockerconfig
+                                  secret:
+                                    secretName: chains-quay-dockerconfig
+                                    items:
+                                      - key: .dockerconfigjson
+                                        path: config.json
+                              containers:
+                                - name: tekton-chains-controller
+                                  env:
+                                    - name: DOCKER_CONFIG
+                                      value: /tekton/.docker
+                                  volumeMounts:
+                                    - name: chains-quay-dockerconfig
+                                      mountPath: /tekton/.docker
+                                      readOnly: true
+              EOF
+
+              oc -n openshift-pipelines rollout restart deploy/tekton-chains-controller 2>/dev/null \
+                || oc -n openshift-pipelines delete pod -l app=tekton-chains-controller --wait=false || true
+              echo "PASS: Tekton Chains keyless (Fulcio identity + Rekor transparency + TUF root)"
+              oc get tektonconfig config -o jsonpath='{.spec.chain}{"\n"}'

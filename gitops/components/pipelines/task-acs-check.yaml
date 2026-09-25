@@ -1,0 +1,114 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: rhads-acs-image-check
+  namespace: rhads-ci
+  labels:
+    app.kubernetes.io/part-of: rhads-demo
+  annotations:
+    task.results.format: application/json
+    task.results.type: roxctl-image-check
+    task.results.key: SCAN_OUTPUT
+    task.output.location: logs
+    task.results.container: step-report
+spec:
+  params:
+    - name: IMAGE
+      type: string
+    - name: STRICT
+      type: string
+      default: "false"
+  steps:
+    - name: check
+      image: registry.redhat.io/advanced-cluster-security/rhacs-roxctl-rhel9@sha256:3c71bc204142a2d89e7c0a6c02aec582c0f21b7072c0558008d8ceaad0b6bc1d
+      env:
+        - name: HOME
+          value: /tmp
+        - name: IMAGE
+          value: $(params.IMAGE)
+        - name: STRICT
+          value: $(params.STRICT)
+        - name: ROX_API_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: acs-ci
+              key: api-token
+              optional: true
+        - name: ROX_CENTRAL_ADDRESS
+          valueFrom:
+            secretKeyRef:
+              name: acs-ci
+              key: central-host
+              optional: true
+      volumeMounts:
+        - name: reports
+          mountPath: /reports
+      script: |
+        #!/usr/bin/env bash
+        set -euo pipefail
+        mkdir -p /tmp/.docker /reports
+        echo "============================================================"
+        echo "[SSSC] ACS deploy-time policy check"
+        echo "Control: cluster policies (privilege, registries, CVEs) against this digest."
+        echo "Image:   ${IMAGE}"
+        echo "Central: ${ROX_CENTRAL_ADDRESS:-<not set>}"
+        echo "STRICT:  ${STRICT}"
+        echo "============================================================"
+        if [ -z "${ROX_API_TOKEN:-}" ] || [ -z "${ROX_CENTRAL_ADDRESS:-}" ]; then
+          echo "FAIL: ACS secret acs-ci missing (api-token / central-host)"
+          echo '{}' > /reports/image-check.json
+          exit 1
+        fi
+        export ROX_INSECURE_CLIENT=true
+        echo "--- roxctl image check ---"
+        set +e
+        roxctl image check \
+          --image="${IMAGE}" \
+          -e "${ROX_CENTRAL_ADDRESS}" \
+          --insecure-skip-tls-verify \
+          -o json > /reports/image-check.json
+        json_rc=$?
+        out=/tmp/acs-check.out
+        roxctl image check \
+          --image="${IMAGE}" \
+          -e "${ROX_CENTRAL_ADDRESS}" \
+          --insecure-skip-tls-verify \
+          -o table > "${out}" 2>&1
+        rc=$?
+        set -e
+        cat "${out}"
+        if [ ! -s /reports/image-check.json ]; then
+          echo '{}' > /reports/image-check.json
+        fi
+        findings=0
+        if grep -Eqi "policies have been violated|Fixable CVE|Fixable RHSA" "${out}"; then
+          findings=1
+        fi
+        echo
+        if [ "${rc}" -ne 0 ]; then
+          echo "ACS image check exited ${rc} (Central FAIL_BUILD enforcement)."
+          if [ "${STRICT}" = "true" ]; then
+            echo "FAIL: STRICT=true — promotion is blocked until ACS policies pass."
+            exit "${rc}"
+          fi
+          echo "WARN: STRICT=false — policy findings are shown; the build continues. Promotion re-runs this check as a gate."
+          exit 0
+        fi
+        if [ "${findings}" -eq 1 ]; then
+          echo "WARN: ACS listed policy findings; none have FAIL_BUILD enforcement (roxctl exit 0)."
+          echo "PASS: ACS image check completed against Central."
+          exit 0
+        fi
+        echo "PASS: ACS image check completed (no violated policies)."
+    - name: report
+      image: registry.access.redhat.com/ubi9/ubi:9.6
+      volumeMounts:
+        - name: reports
+          mountPath: /reports
+      script: |
+        #!/usr/bin/env bash
+        set -euo pipefail
+        cat /reports/image-check.json
+  volumes:
+    - name: reports
+      emptyDir: {}

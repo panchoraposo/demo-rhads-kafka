@@ -1,0 +1,22 @@
+---
+- name: Check if backstage realm exists
+  ansible.builtin.uri:
+    url: "https://{{ keycloak_hostname }}/admin/realms/{{ keycloak_realm }}"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ kc_token }}"
+    status_code: [200, 404]
+    validate_certs: false
+  register: realm_exists
+
+- name: Import backstage realm
+  ansible.builtin.uri:
+    url: "https://{{ keycloak_hostname }}/admin/realms"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ kc_token }}"
+    body: "{{ lookup('file', playbook_dir + '/../files/backstage-realm.json') | from_json }}"
+    body_format: json
+    status_code: 201
+    validate_certs: false
+  when: realm_exists.status == 404

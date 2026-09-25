@@ -1,0 +1,112 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: rhads-gitsign-verify
+  namespace: rhads-ci
+  labels:
+    app.kubernetes.io/part-of: rhads-demo
+spec:
+  params:
+    - name: REKOR_URL
+      type: string
+    - name: FULCIO_URL
+      type: string
+    - name: TUF_URL
+      type: string
+      default: ""
+    - name: OIDC_ISSUER
+      type: string
+      default: ""
+    - name: CERT_IDENTITY_REGEXP
+      type: string
+      # Workshop Dev Spaces users (dev1@rhads.demo, …).
+      default: ".*@rhads\\.demo$"
+  workspaces:
+    - name: source
+  steps:
+    - name: verify
+      image: registry.redhat.io/rhtas/gitsign-rhel9@sha256:4f95c088ef66165779e4b2d5ba89cf2594dd0d837bb707350712dc13b8a27c90
+      env:
+        - name: HOME
+          value: /tmp
+        - name: GITSIGN_REKOR_URL
+          value: $(params.REKOR_URL)
+        - name: GITSIGN_FULCIO_URL
+          value: $(params.FULCIO_URL)
+        - name: TUF_URL
+          value: $(params.TUF_URL)
+        - name: OIDC_ISSUER
+          value: $(params.OIDC_ISSUER)
+        - name: CERT_IDENTITY_REGEXP
+          value: $(params.CERT_IDENTITY_REGEXP)
+      securityContext:
+        runAsUser: 0
+      script: |
+        #!/usr/bin/env bash
+        set -euo pipefail
+        echo "============================================================"
+        echo "[SSSC] Verify Sigstore commit signature"
+        echo "Control: gitsign (RHTAS) — same Fulcio/Rekor trust root as cosign"
+        echo "Fulcio: ${GITSIGN_FULCIO_URL}"
+        echo "Rekor:  ${GITSIGN_REKOR_URL}"
+        echo "============================================================"
+        export PATH="/usr/local/bin:/usr/bin:/bin:${PATH}"
+        GITSIGN_BIN="/usr/local/bin/gitsign_cli_linux"
+        if [ ! -x "${GITSIGN_BIN}" ]; then
+          GITSIGN_BIN="$(command -v gitsign || true)"
+        fi
+        if ! command -v git >/dev/null 2>&1; then
+          echo "Installing git-core (RHTAS gitsign image ships gitsign_cli_linux, not git)..."
+          microdnf -y install git-core >/dev/null
+        fi
+        if ! command -v curl >/dev/null 2>&1; then
+          microdnf -y install curl >/dev/null
+        fi
+        # Derive apps.<cluster> from Fulcio host when params are empty.
+        apps_host="${GITSIGN_FULCIO_URL#https://fulcio-server-trusted-artifact-signer.}"
+        apps_host="${apps_host#http://fulcio-server-trusted-artifact-signer.}"
+        if [ -z "${TUF_URL}" ]; then
+          TUF_URL="https://tuf-trusted-artifact-signer.${apps_host}"
+        fi
+        if [ -z "${OIDC_ISSUER}" ]; then
+          OIDC_ISSUER="https://sso.${apps_host}/realms/backstage"
+        fi
+        export GITSIGN_TUF_MIRROR="${TUF_URL}"
+        export TUF_MIRROR="${TUF_URL}"
+        export SIGSTORE_TUF_MIRROR="${TUF_URL}"
+        git config --global --add safe.directory '*'
+        echo "tools: git=$(git --version | awk '{print $3}') gitsign=${GITSIGN_BIN}"
+        echo "TUF:    ${TUF_URL}"
+        echo "Issuer: ${OIDC_ISSUER}"
+        echo "Identity regexp: ${CERT_IDENTITY_REGEXP}"
+        cd "$(workspaces.source.path)"
+        echo
+        echo "--- HEAD commit ---"
+        git log -1 --pretty=full
+        echo
+        ROOT_FILE="/tmp/rhtas-tuf-root.json"
+        set +e
+        curl -fsSL -k -o "${ROOT_FILE}" "${TUF_URL}/root.json"
+        tuf_rc=$?
+        if [ "${tuf_rc}" -eq 0 ] && [ -n "${GITSIGN_BIN}" ]; then
+          "${GITSIGN_BIN}" initialize --mirror "${TUF_URL}" --root "${ROOT_FILE}"
+        fi
+        echo "--- gitsign verify HEAD ---"
+        # Keyless verify requires an expected Fulcio identity + OIDC issuer.
+        "${GITSIGN_BIN}" verify HEAD \
+          --certificate-identity-regexp "${CERT_IDENTITY_REGEXP}" \
+          --certificate-oidc-issuer "${OIDC_ISSUER}"
+        rc=$?
+        set -e
+        if [ "${rc}" -eq 0 ]; then
+          echo
+          echo "PASS: commit is Sigstore-signed (Fulcio identity recorded in Rekor)."
+          echo "This is the developer signature from Dev Spaces (gitsign / same trust root as cosign)."
+          exit 0
+        fi
+        echo
+        echo "WARN: commit is NOT gitsign-signed (exit ${rc})."
+        echo "The scaffolded initial commit is unsigned. The live demo signs the"
+        echo "follow-up commit from OpenShift Dev Spaces (git commit with gitsign)."
+        git log -1 --show-signature 2>/dev/null || git cat-file -p HEAD | sed -n '1,40p' || true
+        echo "PASS: verification ran; unsigned initial commits do not fail the pipeline."

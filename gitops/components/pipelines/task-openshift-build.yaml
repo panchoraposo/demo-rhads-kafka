@@ -1,0 +1,104 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: rhads-openshift-build
+  namespace: rhads-ci
+  labels:
+    app.kubernetes.io/part-of: rhads-demo
+spec:
+  params:
+    - name: IMAGE
+      type: string
+    - name: DOCKERFILE
+      type: string
+    - name: COMPONENT
+      type: string
+  results:
+    - name: IMAGE_URL
+      description: Image reference without digest (Tekton Chains)
+    - name: IMAGE_DIGEST
+      description: Image digest (Tekton Chains)
+  workspaces:
+    - name: source
+    - name: dockerconfig
+      optional: true
+  steps:
+    - name: oc-build
+      image: registry.redhat.io/openshift4/ose-cli@sha256:69762925e16053d77685ff3a08b3b45dd2bfa5d68277851bc6969b368bbd0cb9
+      env:
+        - name: IMAGE
+          value: $(params.IMAGE)
+        - name: DOCKERFILE
+          value: $(params.DOCKERFILE)
+        - name: COMPONENT
+          value: $(params.COMPONENT)
+      script: |
+        #!/usr/bin/env bash
+        set -euo pipefail
+        echo "============================================================"
+        echo "[SSSC] OpenShift Build (Docker strategy)"
+        echo "Control: the image is built by the OpenShift Build API (BuildConfig),"
+        echo "         not by an ad-hoc buildah loop in the pipeline pod."
+        echo "Image:      ${IMAGE}"
+        echo "Dockerfile: ${DOCKERFILE}"
+        echo "============================================================"
+        DF="${DOCKERFILE#./}"
+        BC="$(echo "${COMPONENT}" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9-')"
+        BC="${BC:0:37}-img"
+        NS="$(cat /var/run/secrets/kubernetes.io/serviceaccount/namespace)"
+        SRC="$(workspaces.source.path)"
+        test -f "${SRC}/${DF}" || { echo "FAIL: Dockerfile not found at ${SRC}/${DF}"; ls -la "${SRC}" >&2; exit 1; }
+        echo "Using BuildConfig ${BC} in ${NS}"
+        cat <<EOF | oc apply -f -
+        apiVersion: build.openshift.io/v1
+        kind: BuildConfig
+        metadata:
+          name: ${BC}
+          namespace: ${NS}
+          labels:
+            app.kubernetes.io/part-of: rhads-demo
+            app.kubernetes.io/name: ${COMPONENT}
+        spec:
+          failedBuildsHistoryLimit: 1
+          successfulBuildsHistoryLimit: 2
+          serviceAccount: pipeline
+          source:
+            type: Binary
+            binary: {}
+          strategy:
+            type: Docker
+            dockerStrategy:
+              dockerfilePath: ${DF}
+          output:
+            to:
+              kind: DockerImage
+              name: ${IMAGE}
+            pushSecret:
+              name: quay-dockerconfig
+        EOF
+        echo
+        echo "--- oc start-build --from-dir (binary input = compiled sources) ---"
+        BUILD="$(oc start-build "${BC}" --from-dir="${SRC}" -o name)"
+        echo "Build object: ${BUILD}"
+        oc logs -f "${BUILD}" || true
+        # Failed builds already have a phase; do not wait out the Complete timeout.
+        for _ in $(seq 1 180); do
+          PHASE="$(oc get "${BUILD}" -o jsonpath='{.status.phase}' 2>/dev/null || true)"
+          case "${PHASE}" in
+            Complete|Failed|Error|Cancelled) break ;;
+          esac
+          sleep 10
+        done
+        oc get "${BUILD}" -o jsonpath='{.status.phase}{"\n"}{.status.output.to.imageDigest}{"\n"}{.status.outputDockerImageReference}{"\n"}'
+        PHASE="$(oc get "${BUILD}" -o jsonpath='{.status.phase}')"
+        DIGEST="$(oc get "${BUILD}" -o jsonpath='{.status.output.to.imageDigest}')"
+        if [ "${PHASE}" != "Complete" ] || [ -z "${DIGEST}" ]; then
+          echo "FAIL: OpenShift Build ${BUILD} phase=${PHASE} digest='${DIGEST}'" >&2
+          exit 1
+        fi
+        echo -n "${IMAGE}" > "$(results.IMAGE_URL.path)"
+        echo -n "${DIGEST}" > "$(results.IMAGE_DIGEST.path)"
+        echo
+        echo "PASS: OpenShift Build completed and pushed ${IMAGE}"
+        echo "Digest: ${DIGEST}"
+        echo "Tekton Chains will sign this IMAGE_URL / IMAGE_DIGEST pair."

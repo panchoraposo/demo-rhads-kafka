@@ -1,0 +1,68 @@
+apiVersion: rhtpa.io/v1
+kind: TrustedProfileAnalyzer
+metadata:
+  name: {{ tpa_name }}
+  namespace: {{ tpa_namespace }}
+  labels:
+    app.kubernetes.io/part-of: rhads-demo
+  annotations:
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  appDomain: {{ tpa_app_domain }}
+  partOf: trustify
+  openshift:
+    useServiceCa: true
+  # Do not set database.minimumConnections / maximumConnections: TPA 3.1 helm
+  # chart treats those ints as the template context and fails with
+  # "can't evaluate field prefix in type int64".
+  database:
+    host: tpa-postgresql
+    port: "5432"
+    name: {{ tpa_db_name }}
+    username: {{ tpa_db_user }}
+    password: {{ tpa_db_password }}
+    sslMode: allow
+  storage:
+    type: filesystem
+    size: 20Gi
+  metrics:
+    enabled: false
+  tracing:
+    enabled: false
+  createDatabase:
+    enabled: true
+  migrateDatabase:
+    enabled: true
+  oidc:
+    issuerUrl: https://{{ keycloak_hostname }}/realms/{{ keycloak_trustify_realm }}
+    uiScope: "openid read:document"
+    clients:
+      frontend: {}
+      cli:
+        clientSecret: cli-demo-secret
+  modules:
+    createDatabase:
+      enabled: true
+    migrateDatabase:
+      enabled: true
+    # Default CVE / GitHub OSV / Red Hat CSAF importers stay disabled: a full
+    # clone does not fit this sandbox. tpa-config seeds matching OSV GHSAs.
+    createImporters:
+      enabled: true
+    server:
+      enabled: true
+      replicas: 1
+      resources:
+        requests:
+          cpu: 250m
+          memory: 1Gi
+    importer:
+      enabled: true
+      replicas: 1
+      concurrency: 1
+      resources:
+        requests:
+          cpu: 250m
+          memory: 1Gi
+      workingDirectory:
+        size: 8Gi

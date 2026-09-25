@@ -1,0 +1,61 @@
+apiVersion: org.eclipse.che/v2
+kind: CheCluster
+metadata:
+  name: devspaces
+  namespace: openshift-devspaces
+  annotations:
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  components:
+    cheServer:
+      extraProperties:
+        # fabric8 default is 10s; SNO API often exceeds that when creating workspace RBAC
+        KUBERNETES_REQUEST_TIMEOUT: "60000"
+        KUBERNETES_CONNECTION_TIMEOUT: "30000"
+    dashboard: {}
+    devfileRegistry: {}
+    pluginRegistry:
+      # Public Open VSX so RHDA / Java / Quarkus vsix files resolve (embedded registry is a subset).
+      openVSXURL: https://open-vsx.org
+    imagePuller:
+      enable: true
+  containerRegistry: {}
+  devEnvironments:
+    defaultEditor: che-incubator/che-code/latest
+    disableContainerBuildCapabilities: false
+    # Uses gitops/components/devspaces/container-build-scc.yaml (not shipped on OCP 4.20+).
+    containerBuildConfiguration:
+      openShiftSecurityContextConstraint: container-build
+    startTimeoutSeconds: 600
+    # Keep the demo workspace warm; first start is dominated by UDI/che-code image pulls.
+    secondsOfInactivityBeforeIdling: -1
+    secondsOfRunBeforeIdling: -1
+    maxNumberOfRunningWorkspacesPerUser: 4
+    maxNumberOfWorkspacesPerUser: 8
+    # RHDA + Java LS + Maven need headroom; che-code adds its own editor overhead.
+    defaultContainerResources:
+      limits:
+        memory: 4Gi
+        cpu: "2"
+      requests:
+        memory: 1536Mi
+        cpu: "500m"
+    containerResourceCaps:
+      limits:
+        memory: 12Gi
+        cpu: "8"
+      requests:
+        memory: 8Gi
+        cpu: "4"
+    persistUserHome:
+      enabled: true
+    # OpenShift worker role (no hostname pins; works on any ephemeral cluster).
+    nodeSelector:
+      node-role.kubernetes.io/worker: ""
+    storage:
+      pvcStrategy: per-user
+    defaultNamespace:
+      autoProvision: true
+      template: <username>-devspaces
+  gitServices: {}
+  networking: {}

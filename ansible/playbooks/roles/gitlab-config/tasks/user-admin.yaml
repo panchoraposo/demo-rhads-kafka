@@ -1,0 +1,47 @@
+---
+- name: Create admin user
+  ansible.builtin.uri:
+    url: "https://{{ gitlab_host }}/api/v4/users"
+    method: POST
+    headers:
+      PRIVATE-TOKEN: "{{ gitlab_pat }}"
+    body_format: json
+    body:
+      email: "gitlab-admin@{{ gitlab_email_domain }}"
+      name: GitLab Admin
+      username: gitlab-admin
+      password: "{{ gitlab_root_password }}"
+      skip_confirmation: true
+      reset_password: false
+    status_code: [201, 409, 502, 503]
+    validate_certs: "{{ validate_ssl_certs }}"
+  register: admin_user_result
+  until: admin_user_result.status in [201, 409]
+  retries: 10
+  delay: 10
+
+- name: Lookup admin
+  ansible.builtin.uri:
+    url: "https://{{ gitlab_host }}/api/v4/users?username=gitlab-admin"
+    method: GET
+    headers:
+      PRIVATE-TOKEN: "{{ gitlab_pat }}"
+    validate_certs: "{{ validate_ssl_certs }}"
+    status_code: [200, 502, 503]
+  register: admin_lookup
+  until: admin_lookup.status == 200
+  retries: 10
+  delay: 10
+
+- name: Promote admin
+  ansible.builtin.uri:
+    url: "https://{{ gitlab_host }}/api/v4/users/{{ admin_lookup.json[0].id }}"
+    method: PUT
+    headers:
+      PRIVATE-TOKEN: "{{ gitlab_pat }}"
+    body_format: json
+    body:
+      admin: true
+    status_code: [200, 502, 503]
+    validate_certs: "{{ validate_ssl_certs }}"
+  when: grant_admin_privileges | default(true)

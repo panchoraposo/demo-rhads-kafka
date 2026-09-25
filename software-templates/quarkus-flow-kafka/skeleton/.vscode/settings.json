@@ -1,0 +1,15 @@
+{
+  "redhat.telemetry.enabled": false,
+  "extensions.autoUpdate": false,
+  "java.server.launchMode": "Hybrid",
+  "java.import.gradle.enabled": false,
+  "java.configuration.detectJdksAtStart": true,
+  "java.configuration.maven.userSettings": ".mvn/settings.xml",
+  "java.import.maven.offline.enabled": false,
+  "java.jdt.ls.lombokSupport.enabled": false,
+  "java.jdt.ls.vmargs": "-XX:+UseParallelGC -XX:GCTimeRatio=4 -Dsun.zip.disableMemoryMapping=true -Xms512m -Xmx2G",
+  "maven.executable.preferMavenWrapper": true,
+  "redHatDependencyAnalytics.mvn.preferWrapper": "true",
+  "redHatDependencyAnalytics.matchManifestVersions": false,
+  "redHatDependencyAnalytics.backendUrl": "http://rhda-backend.trusted-profile-analyzer.svc:8080"
+}

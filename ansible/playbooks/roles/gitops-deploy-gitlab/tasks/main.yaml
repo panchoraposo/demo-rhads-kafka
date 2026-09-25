@@ -1,0 +1,15 @@
+---
+- name: Wait until GitLab answers HTTPS
+  ansible.builtin.uri:
+    url: "https://{{ gitlab_host }}"
+    method: GET
+    validate_certs: false
+    status_code: [200, 302]
+  register: gitlab_http_check
+  retries: 40
+  delay: 15
+  until: gitlab_http_check.status in [200, 302]
+
+- name: GitLab is reachable
+  ansible.builtin.debug:
+    msg: "GitLab is up at https://{{ gitlab_host }}"

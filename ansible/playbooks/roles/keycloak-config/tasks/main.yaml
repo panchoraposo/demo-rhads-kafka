@@ -1,0 +1,38 @@
+---
+- name: Get Keycloak admin token
+  include_tasks: get-token.yaml
+
+- name: Import Backstage realm
+  include_tasks: import-realm.yaml
+
+- name: Ensure groups exist
+  include_tasks: groups.yaml
+
+- name: Create developer users
+  include_tasks: create-users.yaml
+  vars:
+    group_name: developers
+    user_list: "{{ users_developers }}"
+
+- name: Create platform-engineer users
+  include_tasks: create-users.yaml
+  vars:
+    group_name: platform-engineers
+    user_list: "{{ users_platform }}"
+
+- name: Configure OIDC clients
+  include_tasks: clients.yaml
+
+- name: Grant catalog-sync roles to the backstage service account
+  include_tasks: service-account-roles.yaml
+
+- name: Import Trustify realm for TPA
+  include_tasks: trustify-realm.yaml
+
+- name: Verify OpenShift SSO realm is still served
+  ansible.builtin.uri:
+    url: "https://{{ keycloak_hostname }}/realms/sso/.well-known/openid-configuration"
+    method: GET
+    status_code: 200
+    validate_certs: false
+  when: cluster_sso_realm_present | default(false) | bool

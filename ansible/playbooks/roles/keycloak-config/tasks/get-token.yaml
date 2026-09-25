@@ -1,0 +1,53 @@
+---
+- name: Read Keycloak admin password
+  ansible.builtin.command:
+    cmd: oc --context {{ oc_context }} -n keycloak get secret keycloak-initial-admin -o jsonpath={{ '{.data.password}' }}
+  register: kc_admin_pass_raw
+  retries: 40
+  delay: 15
+  until: kc_admin_pass_raw.rc == 0 and kc_admin_pass_raw.stdout | length > 0
+  changed_when: false
+
+- name: Read Keycloak admin username
+  ansible.builtin.command:
+    cmd: oc --context {{ oc_context }} -n keycloak get secret keycloak-initial-admin -o jsonpath={{ '{.data.username}' }}
+  register: kc_admin_user_raw
+  changed_when: false
+  failed_when: false
+
+- name: Set Keycloak admin facts
+  ansible.builtin.set_fact:
+    keycloak_admin_user: "{{ (kc_admin_user_raw.stdout | b64decode) if (kc_admin_user_raw.stdout | default('') | length > 0) else 'temp-admin' }}"
+    keycloak_admin_password: "{{ kc_admin_pass_raw.stdout | b64decode }}"
+
+- name: Wait for Keycloak master realm
+  ansible.builtin.uri:
+    url: "https://{{ keycloak_hostname }}/realms/master"
+    method: GET
+    status_code: 200
+    validate_certs: false
+  register: keycloak_ready
+  retries: 80
+  delay: 15
+  until: keycloak_ready.status == 200
+
+- name: Get admin token
+  ansible.builtin.uri:
+    url: "https://{{ keycloak_hostname }}/realms/master/protocol/openid-connect/token"
+    method: POST
+    body:
+      username: "{{ keycloak_admin_user }}"
+      password: "{{ keycloak_admin_password }}"
+      client_id: admin-cli
+      grant_type: password
+    body_format: form-urlencoded
+    return_content: true
+    validate_certs: false
+  register: kc_token_response
+  retries: 10
+  delay: 10
+  until: kc_token_response.status == 200
+
+- name: Save token
+  ansible.builtin.set_fact:
+    kc_token: "{{ kc_token_response.json.access_token }}"

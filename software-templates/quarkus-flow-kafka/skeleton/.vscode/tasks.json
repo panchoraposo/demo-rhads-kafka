@@ -1,0 +1,49 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "devfile: Quarkus dev (trip UI + Dev UI on 8080)",
+      "type": "shell",
+      "command": "bash -c 'set -euo pipefail; . .devcontainer/setup-java.sh; bash .devcontainer/setup-maas.sh; ./mvnw -s .mvn/settings.xml quarkus:dev -Dquarkus.http.host=0.0.0.0 -Dquarkus.http.port=8080 -Dquarkus.test.continuous-testing=disabled -Dquarkus.analytics.disabled=true'",
+      "options": { "cwd": "${workspaceFolder}" },
+      "group": { "kind": "test", "isDefault": true },
+      "presentation": { "reveal": "always", "panel": "dedicated" },
+      "problemMatcher": []
+    },
+    {
+      "label": "devfile: Maven package (Nexus)",
+      "type": "shell",
+      "command": "bash -c 'set -euo pipefail; . .devcontainer/setup-java.sh; ./mvnw -s .mvn/settings.xml -DskipTests package'",
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": []
+    },
+    {
+      "label": "devfile: Install JDK 21",
+      "type": "shell",
+      "command": "bash .devcontainer/setup-java.sh",
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": []
+    },
+    {
+      "label": "devfile: Configure Sigstore git commit signing",
+      "type": "shell",
+      "command": "bash .devcontainer/setup-gitsign.sh",
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": []
+    },
+    {
+      "label": "devfile: Verify Sigstore-signed HEAD",
+      "type": "shell",
+      "command": "bash .devcontainer/verify-gitsign.sh",
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": []
+    },
+    {
+      "label": "devfile: Write .env for Red Hat MaaS",
+      "type": "shell",
+      "command": "bash .devcontainer/setup-maas.sh",
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": []
+    }
+  ]
+}

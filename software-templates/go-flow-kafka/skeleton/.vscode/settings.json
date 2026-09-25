@@ -1,0 +1,3 @@
+{
+  "redHatDependencyAnalytics.backendUrl": "http://rhda-backend.trusted-profile-analyzer.svc:8080"
+}

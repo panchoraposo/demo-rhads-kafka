@@ -1,0 +1,78 @@
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: ${{values.component_id | dump}}
+  {%- if values.description %}
+  description: ${{values.description | dump}}
+  {%- endif %}
+  annotations:
+    # --- GitOps y Kubernetes ---
+    argocd/app-selector: rht-gitops.com/${{ values.gitops_namespace }}=${{values.component_id}}
+    argocd/instance-name: main
+    backstage.io/kubernetes-id: ${{values.component_id}}
+    backstage.io/kubernetes-cluster: demo-cluster
+    # Do not set kubernetes-namespace: Topology would only show -dev.
+    # Staging/prod share kubernetes-id; Hub lists all namespaces the SA can view.
+    # --- Tekton ---
+    janus-idp.io/tekton: ${{values.component_id}}
+    tekton.dev/cicd : "true"
+    # --- Quay ---
+    quay.io/repository-slug: '${{values.image_organization}}/${{values.component_id}}'
+    # --- Otras anotaciones ---
+    backstage.io/source-location: url:https://${{values.host}}/${{values.destination}}
+    backstage.io/techdocs-ref: url:https://${{values.host}}/${{values.destination}}
+    gitlab.com/project-slug: ${{values.destination}}
+    jenkins.io/job-full-name: ${{values.component_id}}
+
+  tags:
+    - java
+    - quarkus
+    - flow
+    - kafka
+    - langchain4j
+  links:
+    - url: https://${{values.component_id}}-${{values.component_id}}-dev.${{values.cluster_subdomain}}
+      title: Trip Planner UI (dev)
+      icon: web
+    - url: https://kafka-console.${{values.cluster_subdomain}}
+      title: Kafka Console
+      icon: web
+    - url: https://devspaces.${{values.cluster_subdomain}}/#https://${{values.host}}/${{values.destination}}
+      title: OpenShift Dev Spaces (VS Code)
+      icon: web
+    - url: https://devspaces.${{values.cluster_subdomain}}/#https://${{values.host}}/${{values.destination}}?che-editor=che-incubator/che-idea/latest
+      title: OpenShift Dev Spaces (JetBrains IntelliJ)
+      icon: web
+    - url: https://server.${{values.cluster_subdomain}}/
+      title: Trusted Profile Analyzer (latest SBOM)
+      icon: catalog
+    - url: https://console-openshift-console.${{values.cluster_subdomain}}/k8s/ns/${{values.namespace}}/tekton.dev~v1~Pipeline
+      title: Tekton pipelines
+      icon: catalog
+    - url: https://quay.${{values.cluster_subdomain}}/repository/${{values.image_organization}}/${{values.component_id}}
+      title: Quay image + signatures
+      icon: catalog
+spec:
+  type: service
+  lifecycle: development
+  owner: group:default/developers
+  providesApis:
+    - ${{values.component_id | dump}}
+---
+apiVersion: backstage.io/v1alpha1
+kind: API
+metadata:
+  name: ${{values.component_id | dump}}
+  {%- if values.description %}
+  description: ${{values.description | dump}}
+  {%- endif %}
+  tags:
+    - quarkus
+    - flow
+    - kafka
+spec:
+  type: openapi
+  lifecycle: development
+  owner: group:default/developers
+  definition:
+    $text: ./openapi.yaml

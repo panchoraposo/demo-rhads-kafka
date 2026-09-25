@@ -1,0 +1,44 @@
+apiVersion: quay.redhat.com/v1
+kind: QuayRegistry
+metadata:
+  name: quay
+  namespace: {{ quay_namespace }}
+  labels:
+    app.kubernetes.io/part-of: rhads-demo
+  annotations:
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  configBundleSecret: quay-config-bundle
+  components:
+    - kind: clair
+      managed: false
+    # Quay 3.17 rejects affinity (and most other) overrides on postgres and
+    # sets RolloutBlocked, so the operator never creates postgres/redis/app.
+    - kind: postgres
+      managed: true
+    - kind: objectstorage
+      managed: true
+    - kind: redis
+      managed: true
+    - kind: horizontalpodautoscaler
+      managed: false
+    - kind: route
+      managed: true
+    - kind: mirror
+      managed: false
+    - kind: monitoring
+      managed: false
+    - kind: tls
+      managed: true
+    - kind: quay
+      managed: true
+      overrides:
+        replicas: 1
+        resources:
+          requests:
+            cpu: 250m
+            memory: 2Gi
+          limits:
+            memory: 8Gi
+    - kind: clairpostgres
+      managed: false

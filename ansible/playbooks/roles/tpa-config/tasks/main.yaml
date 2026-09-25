@@ -1,0 +1,19 @@
+---
+- name: Store TPA OIDC secret for CI uploads
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: tpa-oidc
+        namespace: rhads-ci
+      type: Opaque
+      stringData:
+        client-id: cli
+        client-secret: cli-demo-secret
+        token-url: "https://{{ keycloak_hostname }}/realms/{{ keycloak_trustify_realm }}/protocol/openid-connect/token"
+        tpa-url: "https://server{{ tpa_app_domain }}"
+
+- name: Seed TPA with OSV advisories for demo-vulnerable libraries
+  ansible.builtin.include_tasks: seed-advisories.yaml

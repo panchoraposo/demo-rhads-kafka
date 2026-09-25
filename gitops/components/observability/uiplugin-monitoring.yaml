@@ -1,0 +1,13 @@
+apiVersion: monitoring.rhobs/v1alpha1
+kind: UIPlugin
+metadata:
+  name: monitoring
+  labels:
+    app.kubernetes.io/part-of: rhads-demo
+  annotations:
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  type: Monitoring
+  monitoring:
+    perses:
+      enabled: true

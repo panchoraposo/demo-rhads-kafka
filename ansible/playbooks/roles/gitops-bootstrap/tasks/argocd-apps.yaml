@@ -1,0 +1,124 @@
+---
+- name: Component Applications (omit Keycloak when the cluster already owns SSO)
+  ansible.builtin.set_fact:
+    rhads_component_apps: "{{ (rhads_component_apps_all | rejectattr('name', 'equalto', 'keycloak') | list) if not (rhads_manage_keycloak | default(true) | bool) else rhads_component_apps_all }}"
+  vars:
+    rhads_component_apps_all:
+      - { name: odf, path: gitops/components/odf, ns: openshift-storage }
+      - { name: keycloak, path: gitops/components/keycloak, ns: keycloak }
+      - { name: rhtas, path: gitops/components/rhtas, ns: trusted-artifact-signer }
+      - { name: rhtpa, path: gitops/components/rhtpa, ns: trusted-profile-analyzer }
+      - { name: rhacs, path: gitops/components/rhacs, ns: stackrox }
+      - { name: pipelines, path: gitops/components/pipelines, ns: rhads-ci }
+      - { name: nexus, path: gitops/components/nexus, ns: nexus }
+      - { name: vault, path: gitops/components/vault, ns: vault }
+      - { name: external-secrets, path: gitops/components/external-secrets, ns: external-secrets }
+      - { name: devspaces, path: gitops/components/devspaces, ns: openshift-devspaces }
+      - { name: quay-ns, path: gitops/components/quay, ns: quay }
+      - { name: kafka, path: gitops/components/kafka, ns: kafka }
+      - { name: observability, path: gitops/components/observability, ns: rhads-observability }
+
+- name: Create Argo CD Application for operators
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: argoproj.io/v1alpha1
+      kind: Application
+      metadata:
+        name: rhads-operators
+        namespace: "{{ gitops_namespace }}"
+        labels:
+          app.kubernetes.io/part-of: rhads-demo
+      spec:
+        project: default
+        source:
+          repoURL: "{{ git_repo_url }}"
+          targetRevision: "{{ git_target_revision }}"
+          path: gitops/platform/operators
+        destination:
+          server: https://kubernetes.default.svc
+        syncPolicy:
+          automated:
+            prune: false
+            selfHeal: true
+          syncOptions:
+            - CreateNamespace=true
+            - ServerSideApply=true
+
+- name: Create Argo CD Applications for components
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: argoproj.io/v1alpha1
+      kind: Application
+      metadata:
+        name: "rhads-{{ item.name }}"
+        namespace: "{{ gitops_namespace }}"
+        labels:
+          app.kubernetes.io/part-of: rhads-demo
+      spec:
+        project: default
+        source:
+          repoURL: "{{ git_repo_url }}"
+          targetRevision: "{{ git_target_revision }}"
+          path: "{{ item.path }}"
+        destination:
+          server: https://kubernetes.default.svc
+          namespace: "{{ item.ns | default('default') }}"
+        syncPolicy:
+          automated:
+            prune: false
+            # Keep GitHub from overwriting the local bootstrap apply. Self-heal
+            # is turned on when Applications are retargeted at GitLab.
+            selfHeal: false
+          syncOptions:
+            - CreateNamespace=true
+            - SkipDryRunOnMissingResource=true
+  loop: "{{ rhads_component_apps }}"
+
+- name: Ignore Fulcio issuer drift on rhads-rhtas (PostSync patches live SSO + Kubernetes OIDC)
+  kubernetes.core.k8s:
+    state: patched
+    kind: Application
+    api_version: argoproj.io/v1alpha1
+    name: rhads-rhtas
+    namespace: "{{ gitops_namespace }}"
+    definition:
+      spec:
+        ignoreDifferences:
+          - group: rhtas.redhat.com
+            kind: Securesign
+            jsonPointers:
+              - /spec/fulcio/config/OIDCIssuers
+        syncPolicy:
+          automated:
+            prune: false
+            selfHeal: true
+          syncOptions:
+            - CreateNamespace=true
+            - SkipDryRunOnMissingResource=true
+            - RespectIgnoreDifferences=true
+
+- name: Ignore RHDA OIDC secret created by PostSync on rhads-rhtpa
+  kubernetes.core.k8s:
+    state: patched
+    kind: Application
+    api_version: argoproj.io/v1alpha1
+    name: rhads-rhtpa
+    namespace: "{{ gitops_namespace }}"
+    definition:
+      spec:
+        ignoreDifferences:
+          - group: ""
+            kind: Secret
+            name: rhda-backend-oidc
+            jsonPointers:
+              - /data
+        syncPolicy:
+          automated:
+            prune: false
+            selfHeal: true
+          syncOptions:
+            - CreateNamespace=true
+            - SkipDryRunOnMissingResource=true
+            - RespectIgnoreDifferences=true

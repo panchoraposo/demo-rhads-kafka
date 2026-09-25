@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <title>RHADS + Kafka — Agentic Trip Planner Demo</title>
+  <style>
+    :root { --ink:#151515; --muted:#6a6e73; --line:#d2d2d2; --bg:#f5f5f5; --card:#fff; --accent:#ee0000; }
+    body { font-family: RedHatText, Helvetica, Arial, sans-serif; margin:0; background:var(--bg); color:var(--ink); }
+    header { background:var(--ink); color:#fff; padding:28px 40px; }
+    header h1 { margin:0 0 6px; font-size:22px; font-weight:600; }
+    header p { margin:0; color:#c7c7c7; font-size:14px; }
+    main { padding:28px 40px 48px; display:grid; grid-template-columns: 2fr 1fr; gap:24px; }
+    h2 { font-size:16px; margin:0 0 12px; }
+    table { width:100%; border-collapse:collapse; background:var(--card); }
+    th, td { text-align:left; padding:10px 12px; border-bottom:1px solid var(--line); font-size:14px; vertical-align:top; }
+    th { color:var(--muted); font-weight:600; font-size:12px; text-transform:uppercase; letter-spacing:.04em; }
+    a { color:#06c; }
+    .card { background:var(--card); padding:16px 18px; border:1px solid var(--line); }
+    .card ul { margin:0; padding-left:18px; }
+    .card li { margin:6px 0; font-size:14px; line-height:1.4; }
+    code { font-size:12px; background:#f0f0f0; padding:1px 4px; }
+    footer { padding:0 40px 32px; color:var(--muted); font-size:12px; }
+  </style>
+</head>
+<body>
+<header>
+  <h1>RHADS + Kafka — Agentic Trip Planner</h1>
+  <p>Supply chain + Streams for Apache Kafka HITL — OpenShift {{ cluster_base_domain }}</p>
+</header>
+<main>
+  <section>
+    <h2>Consoles</h2>
+    <table>
+      <tr><th>Product</th><th>URL</th><th>Username</th><th>Password</th></tr>
+      <tr><td>Developer Hub</td><td><a href="{{ dash_rhdh_url }}">{{ dash_rhdh_url }}</a></td><td>dev1 / pe1</td><td>{{ common_user_password }}</td></tr>
+      <tr><td>GitLab CE</td><td><a href="{{ dash_gitlab_url }}">{{ dash_gitlab_url }}</a></td><td>root, dev1, pe1</td><td>{{ gitlab_root_password }}</td></tr>
+      <tr><td>Keycloak (RHBK)</td><td><a href="{{ dash_keycloak_url }}">{{ dash_keycloak_url }}</a></td><td>temp-admin</td><td>{{ dash_kc_pass }}</td></tr>
+      <tr><td>OpenShift GitOps</td><td><a href="{{ dash_argocd_url }}">{{ dash_argocd_url }}</a></td><td>admin</td><td>{{ dash_argocd_pass }}</td></tr>
+      <tr><td>Quay</td><td><a href="{{ dash_quay_url }}">{{ dash_quay_url }}</a></td><td>{{ quay_admin_user }}</td><td>{{ quay_admin_password }}</td></tr>
+      <tr><td>ACS Central</td><td><a href="{{ dash_acs_url }}">{{ dash_acs_url }}</a></td><td>admin</td><td>{{ dash_acs_pass }}</td></tr>
+      <tr><td>Trusted Profile Analyzer</td><td><a href="{{ dash_tpa_url }}">{{ dash_tpa_url }}</a></td><td>tpa-admin</td><td>{{ common_user_password }}</td></tr>
+      <tr><td>Dev Spaces</td><td><a href="{{ dash_devspaces_url }}">{{ dash_devspaces_url }}</a></td><td>OpenShift login</td><td>—</td></tr>
+      <tr><td>Rekor Search UI</td><td><a href="{{ dash_rekor_url }}">{{ dash_rekor_url }}</a></td><td>—</td><td>—</td></tr>
+      <tr><td>Fulcio</td><td><a href="{{ dash_fulcio_url }}">{{ dash_fulcio_url }}</a></td><td>—</td><td>—</td></tr>
+      <tr><td>Nexus</td><td><a href="{{ dash_nexus_url }}">{{ dash_nexus_url }}</a></td><td>admin</td><td>admin123</td></tr>
+      <tr><td>HashiCorp Vault</td><td><a href="{{ dash_vault_url }}">{{ dash_vault_url }}</a></td><td>vaultadmin</td><td>{{ common_user_password }}</td></tr>
+      <tr><td>Kafka Console</td><td><a href="{{ dash_kafka_console_url }}">{{ dash_kafka_console_url }}</a></td><td>OpenShift login</td><td>—</td></tr>
+      <tr><td>Perses dashboards</td><td>Observe → Dashboards (Perses) → <code>rhads-observability</code></td><td>OpenShift login</td><td>—</td></tr>
+    </table>
+  </section>
+  <aside class="card">
+    <h2>Live script</h2>
+    <ul>
+      <li>Sign in to Developer Hub as <code>dev1</code></li>
+      <li>Create → <strong>Quarkus Flow/Kafka</strong> or <strong>Go/Kafka</strong> trip planner only</li>
+      <li>Dev Spaces → RHDA on <code>pom.xml</code> / <code>go.mod</code></li>
+      <li>Trip UI → plan → Kafka Console <code>flow-in</code>/<code>flow-out</code> → Approve</li>
+      <li>Observe → Dashboards (Perses)</li>
+      <li>TPA SBOM · ACS · signed commit · tag/release Conforma</li>
+    </ul>
+  </aside>
+</main>
+<footer>RHADS + Kafka demo · GitOps + Ansible · OpenShift 4.20+</footer>
+</body>
+</html>

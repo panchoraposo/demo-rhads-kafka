@@ -1,0 +1,175 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+  labels:
+    app: gitlab
+  name: gitlab
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: gitlab
+  template:
+    metadata:
+      labels:
+        app: gitlab
+    spec:
+      serviceAccount: gitlab
+      serviceAccountName: gitlab
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: node-role.kubernetes.io/worker
+                    operator: Exists
+                  - key: node-role.kubernetes.io/control-plane
+                    operator: DoesNotExist
+      securityContext:
+        runAsUser: 0
+        fsGroup: 0
+      containers:
+      - name: gitlab
+        image: {{ .Values.gitlab.image }}
+        imagePullPolicy: IfNotPresent
+        env:
+        - name: FULCIO_ROOT_CERT_URL
+          value: "https://fulcio-server-trusted-artifact-signer.{{ $.Values.cluster.subdomain }}/api/v1/rootCert"
+        - name: GITLAB_OMNIBUS_CONFIG
+          valueFrom:
+            configMapKeyRef:
+              name: gitlab-cm
+              key: GITLAB_OMNIBUS_CONFIG
+        - name: GITLAB_ROOT_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: gitlab-secret
+              key: GITLAB_ROOT_PASSWORD
+        - name: GITLAB_SECRETS_DB_KEY_BASE
+          valueFrom:
+            secretKeyRef:
+              name: gitlab-rails-keys
+              key: GITLAB_SECRETS_DB_KEY_BASE
+        - name: GITLAB_SECRETS_OTP_KEY_BASE
+          valueFrom:
+            secretKeyRef:
+              name: gitlab-rails-keys
+              key: GITLAB_SECRETS_OTP_KEY_BASE
+        - name: GITLAB_SECRETS_SECRET_KEY_BASE
+          valueFrom:
+            secretKeyRef:
+              name: gitlab-rails-keys
+              key: GITLAB_SECRETS_SECRET_KEY_BASE
+        - name: GITLAB_SECRETS_ENCRYPTED_SETTINGS_KEY_BASE
+          valueFrom:
+            secretKeyRef:
+              name: gitlab-rails-keys
+              key: GITLAB_SECRETS_ENCRYPTED_SETTINGS_KEY_BASE
+        - name: GITLAB_AR_PRIMARY_KEY
+          valueFrom:
+            secretKeyRef:
+              name: gitlab-rails-keys
+              key: GITLAB_AR_PRIMARY_KEY
+        - name: GITLAB_AR_DETERMINISTIC_KEY
+          valueFrom:
+            secretKeyRef:
+              name: gitlab-rails-keys
+              key: GITLAB_AR_DETERMINISTIC_KEY
+        - name: GITLAB_AR_SALT
+          valueFrom:
+            secretKeyRef:
+              name: gitlab-rails-keys
+              key: GITLAB_AR_SALT
+        - name: OIDC_ISSUER
+          valueFrom:
+            secretKeyRef:
+              name: gitlab-oidc-config
+              key: OIDC_ISSUER
+              optional: true
+        - name: OIDC_CLIENT_ID
+          valueFrom:
+            secretKeyRef:
+              name: gitlab-oidc-config
+              key: OIDC_CLIENT_ID
+              optional: true
+        - name: OIDC_CLIENT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: gitlab-oidc-config
+              key: OIDC_CLIENT_SECRET
+              optional: true
+        - name: OIDC_REDIRECT_URI
+          valueFrom:
+            secretKeyRef:
+              name: gitlab-oidc-config
+              key: OIDC_REDIRECT_URI
+              optional: true
+        ports:
+        - containerPort: 22
+          name: ssh
+          protocol: TCP
+        - containerPort: 80
+          name: http
+          protocol: TCP
+        resources:
+          requests:
+            cpu: "1"
+            memory: 4Gi
+          limits:
+            memory: 8Gi
+        securityContext:
+          privileged: true
+          runAsUser: 0
+        lifecycle:
+          postStart:
+            exec:
+              command: ["/bin/bash", "/rhads-x509/install-fulcio-ca.sh"]
+        startupProbe:
+          httpGet:
+            path: /users/sign_in
+            port: http
+          periodSeconds: 15
+          failureThreshold: 60
+        readinessProbe:
+          httpGet:
+            path: /-/readiness
+            port: http
+          periodSeconds: 20
+          timeoutSeconds: 5
+          failureThreshold: 6
+        livenessProbe:
+          httpGet:
+            path: /-/liveness
+            port: http
+          periodSeconds: 30
+          timeoutSeconds: 5
+          failureThreshold: 6
+        volumeMounts:
+        - mountPath: /var/opt/gitlab
+          name: gitlab-data
+        - mountPath: /etc/gitlab
+          name: gitlab-data
+          subPath: etc-gitlab
+        - mountPath: /var/log/gitlab
+          name: gitlab-logs
+        - mountPath: /rhads-x509
+          name: rhads-x509
+          readOnly: true
+        - mountPath: /opt/gitlab/embedded/service/gitlab-rails/config/initializers/zz_rhads_x509.rb
+          name: rhads-x509
+          subPath: zz_rhads_x509.rb
+          readOnly: true
+      volumes:
+      - name: gitlab-data
+        persistentVolumeClaim:
+          claimName: gitlab-omnibus-data
+      - name: gitlab-logs
+        emptyDir: {}
+      - name: rhads-x509
+        configMap:
+          name: gitlab-rhads-x509
+          defaultMode: 0755

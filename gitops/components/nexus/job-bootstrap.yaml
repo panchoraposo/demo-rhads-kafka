@@ -1,0 +1,140 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: nexus-bootstrap
+  namespace: nexus
+  labels:
+    app.kubernetes.io/part-of: rhads-demo
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    argocd.argoproj.io/sync-wave: "10"
+    argocd.argoproj.io/sync-options: Replace=true
+spec:
+  backoffLimit: 12
+  ttlSecondsAfterFinished: 86400
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: bootstrap
+          image: registry.access.redhat.com/ubi9/ubi:9.6
+          env:
+            - name: NEXUS
+              value: http://nexus.nexus.svc:8081
+            - name: NEXUS_USER
+              value: admin
+            - name: NEXUS_PASS
+              value: admin123
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              set -euo pipefail
+              echo "[SSSC] Bootstrap Nexus (Maven Central + Red Hat GA + npm + Go, then warm cache)"
+              for i in $(seq 1 60); do
+                if curl -sf "${NEXUS}/service/rest/v1/status" >/dev/null; then
+                  echo "Nexus is up"
+                  break
+                fi
+                echo "waiting for Nexus (${i}/60)..."
+                sleep 10
+              done
+              curl -sf "${NEXUS}/service/rest/v1/status" >/dev/null
+              AUTH=(-u "${NEXUS_USER}:${NEXUS_PASS}")
+              curl -sf "${AUTH[@]}" "${NEXUS}/service/rest/v1/status" >/dev/null
+              echo "--- enable anonymous downloads ---"
+              curl -sf "${AUTH[@]}" -X PUT "${NEXUS}/service/rest/v1/security/anonymous" \
+                -H 'Content-Type: application/json' \
+                -d '{"enabled":true,"userId":"anonymous","realmName":"NexusAuthorizingRealm"}' \
+                || echo "anonymous already configured"
+              echo "--- maven proxy redhat-ga ---"
+              if ! curl -sf "${AUTH[@]}" "${NEXUS}/service/rest/v1/repositories/maven/proxy/redhat-ga" >/dev/null; then
+                curl -sf "${AUTH[@]}" -X POST "${NEXUS}/service/rest/v1/repositories/maven/proxy" \
+                  -H 'Content-Type: application/json' \
+                  -d '{"name":"redhat-ga","online":true,"storage":{"blobStoreName":"default","strictContentTypeValidation":true},"proxy":{"remoteUrl":"https://maven.repository.redhat.com/ga/","contentMaxAge":1440,"metadataMaxAge":1440},"negativeCache":{"enabled":true,"timeToLive":1440},"httpClient":{"blocked":false,"autoBlock":true},"maven":{"versionPolicy":"RELEASE","layoutPolicy":"PERMISSIVE"}}'
+              fi
+              echo "--- maven-public group members ---"
+              curl -sf "${AUTH[@]}" -X PUT "${NEXUS}/service/rest/v1/repositories/maven/group/maven-public" \
+                -H 'Content-Type: application/json' \
+                -d '{"name":"maven-public","online":true,"storage":{"blobStoreName":"default","strictContentTypeValidation":true},"group":{"memberNames":["maven-releases","maven-snapshots","maven-central","redhat-ga"]}}'
+              echo "--- npm proxy + group ---"
+              if ! curl -sf "${AUTH[@]}" "${NEXUS}/service/rest/v1/repositories/npm/proxy/npm-proxy" >/dev/null; then
+                curl -sf "${AUTH[@]}" -X POST "${NEXUS}/service/rest/v1/repositories/npm/proxy" \
+                  -H 'Content-Type: application/json' \
+                  -d '{"name":"npm-proxy","online":true,"storage":{"blobStoreName":"default","strictContentTypeValidation":true},"proxy":{"remoteUrl":"https://registry.npmjs.org","contentMaxAge":1440,"metadataMaxAge":1440},"negativeCache":{"enabled":true,"timeToLive":1440},"httpClient":{"blocked":false,"autoBlock":true}}' \
+                  || echo "npm-proxy create returned non-2xx"
+              fi
+              if ! curl -sf "${AUTH[@]}" "${NEXUS}/service/rest/v1/repositories/npm/hosted/npm-hosted" >/dev/null; then
+                curl -sf "${AUTH[@]}" -X POST "${NEXUS}/service/rest/v1/repositories/npm/hosted" \
+                  -H 'Content-Type: application/json' \
+                  -d '{"name":"npm-hosted","online":true,"storage":{"blobStoreName":"default","strictContentTypeValidation":true,"writePolicy":"ALLOW_ONCE"}}' \
+                  || true
+              fi
+              curl -sf "${AUTH[@]}" -X POST "${NEXUS}/service/rest/v1/repositories/npm/group" \
+                -H 'Content-Type: application/json' \
+                -d '{"name":"npm-group","online":true,"storage":{"blobStoreName":"default","strictContentTypeValidation":true},"group":{"memberNames":["npm-hosted","npm-proxy"]}}' \
+                || curl -sf "${AUTH[@]}" -X PUT "${NEXUS}/service/rest/v1/repositories/npm/group/npm-group" \
+                     -H 'Content-Type: application/json' \
+                     -d '{"name":"npm-group","online":true,"storage":{"blobStoreName":"default","strictContentTypeValidation":true},"group":{"memberNames":["npm-hosted","npm-proxy"]}}' \
+                || echo "npm-group already present"
+              echo "--- go proxy + hosted + group (proxy.golang.org) ---"
+              if ! curl -sf "${AUTH[@]}" "${NEXUS}/service/rest/v1/repositories/go/proxy/go-proxy" >/dev/null; then
+                curl -sf "${AUTH[@]}" -X POST "${NEXUS}/service/rest/v1/repositories/go/proxy" \
+                  -H 'Content-Type: application/json' \
+                  -d '{"name":"go-proxy","online":true,"storage":{"blobStoreName":"default","strictContentTypeValidation":true},"proxy":{"remoteUrl":"https://proxy.golang.org/","contentMaxAge":1440,"metadataMaxAge":1440},"negativeCache":{"enabled":true,"timeToLive":1440},"httpClient":{"blocked":false,"autoBlock":true}}' \
+                  || echo "go-proxy create returned non-2xx"
+              fi
+              if ! curl -sf "${AUTH[@]}" "${NEXUS}/service/rest/v1/repositories/go/hosted/go-hosted" >/dev/null; then
+                curl -sf "${AUTH[@]}" -X POST "${NEXUS}/service/rest/v1/repositories/go/hosted" \
+                  -H 'Content-Type: application/json' \
+                  -d '{"name":"go-hosted","online":true,"storage":{"blobStoreName":"default","strictContentTypeValidation":true,"writePolicy":"ALLOW"}}' \
+                  || true
+              fi
+              curl -sf "${AUTH[@]}" -X POST "${NEXUS}/service/rest/v1/repositories/go/group" \
+                -H 'Content-Type: application/json' \
+                -d '{"name":"go-group","online":true,"storage":{"blobStoreName":"default","strictContentTypeValidation":true},"group":{"memberNames":["go-hosted","go-proxy"]}}' \
+                || curl -sf "${AUTH[@]}" -X PUT "${NEXUS}/service/rest/v1/repositories/go/group/go-group" \
+                     -H 'Content-Type: application/json' \
+                     -d '{"name":"go-group","online":true,"storage":{"blobStoreName":"default","strictContentTypeValidation":true},"group":{"memberNames":["go-hosted","go-proxy"]}}' \
+                || echo "go-group already present"
+              echo "--- raw hosted (preloaded Maven local-repo tarball for Tekton) ---"
+              if ! curl -sf "${AUTH[@]}" "${NEXUS}/service/rest/v1/repositories/raw/hosted/raw-hosted" >/dev/null; then
+                curl -sf "${AUTH[@]}" -X POST "${NEXUS}/service/rest/v1/repositories/raw/hosted" \
+                  -H 'Content-Type: application/json' \
+                  -d '{"name":"raw-hosted","online":true,"storage":{"blobStoreName":"default","strictContentTypeValidation":false,"writePolicy":"ALLOW"}}' \
+                  || echo "raw-hosted create returned non-2xx"
+              fi
+              echo "--- warm Maven cache (Quarkus Red Hat BOM + plugins) ---"
+              warm() { echo "GET $1"; curl -sf -o /dev/null "$1" && echo OK || echo MISS; }
+              BASE="${NEXUS}/repository/maven-public"
+              warm "${BASE}/com/redhat/quarkus/platform/quarkus-bom/3.20.6.redhat-00004/quarkus-bom-3.20.6.redhat-00004.pom"
+              warm "${BASE}/com/redhat/quarkus/platform/quarkus-camel-bom/3.20.6.redhat-00004/quarkus-camel-bom-3.20.6.redhat-00004.pom"
+              warm "${BASE}/com/redhat/quarkus/platform/quarkus-bom/3.33.3.redhat-00001/quarkus-bom-3.33.3.redhat-00001.pom"
+              warm "${BASE}/com/redhat/quarkus/platform/quarkus-camel-bom/3.33.3.redhat-00001/quarkus-camel-bom-3.33.3.redhat-00001.pom"
+              warm "${BASE}/com/redhat/quarkus/platform/quarkus-langchain4j-bom/3.33.3.redhat-00001/quarkus-langchain4j-bom-3.33.3.redhat-00001.pom"
+              warm "${BASE}/io/quarkus/quarkus-core/3.20.6/quarkus-core-3.20.6.pom"
+              warm "${BASE}/org/apache/commons/commons-text/1.9/commons-text-1.9.pom"
+              warm "${BASE}/org/apache/commons/commons-text/1.9/commons-text-1.9.jar"
+              warm "${BASE}/org/yaml/snakeyaml/1.33/snakeyaml-1.33.pom"
+              warm "${BASE}/org/yaml/snakeyaml/1.33/snakeyaml-1.33.jar"
+              # Patched versions used in the Dev Spaces inner-loop (do not delete; bump).
+              warm "${BASE}/org/apache/commons/commons-text/1.13.1/commons-text-1.13.1.pom"
+              warm "${BASE}/org/apache/commons/commons-text/1.13.1/commons-text-1.13.1.jar"
+              warm "${BASE}/org/apache/commons/commons-lang3/3.17.0/commons-lang3-3.17.0.pom"
+              warm "${BASE}/org/apache/commons/commons-lang3/3.17.0/commons-lang3-3.17.0.jar"
+              warm "${BASE}/org/yaml/snakeyaml/2.3/snakeyaml-2.3.pom"
+              warm "${BASE}/org/yaml/snakeyaml/2.3/snakeyaml-2.3.jar"
+              warm "${BASE}/org/apache/maven/plugins/maven-compiler-plugin/3.14.0/maven-compiler-plugin-3.14.0.pom"
+              warm "${BASE}/org/apache/maven/plugins/maven-compiler-plugin/3.15.0/maven-compiler-plugin-3.15.0.pom"
+              warm "${BASE}/org/apache/maven/plugins/maven-surefire-plugin/3.5.4/maven-surefire-plugin-3.5.4.pom"
+              echo "--- warm npm-group (pinned demo packages) ---"
+              NPM="${NEXUS}/repository/npm-group"
+              warm "${NPM}/express/-/express-4.18.2.tgz"
+              warm "${NPM}/lodash/-/lodash-4.17.20.tgz"
+              echo "--- warm go-group (trip-go demo modules) ---"
+              GO="${NEXUS}/repository/go-group"
+              warm "${GO}/github.com/IBM/sarama/@v/v1.38.1.info"
+              warm "${GO}/github.com/cloudevents/sdk-go/v2/@v/v2.14.0.info"
+              warm "${GO}/github.com/prometheus/client_golang/@v/v1.16.0.info"
+              warm "${GO}/gopkg.in/yaml.v2/@v/v2.4.0.info"
+              echo "PASS: Nexus maven-public, npm-group and go-group are ready (libraries cached on first fetch)."

@@ -1,0 +1,46 @@
+---
+# TPA 3.1 creates CVE / OSV / CSAF importers disabled. Cloning those feeds on a
+# sandbox fills the importer PVC and still leaves SBOMs at 0 CVEs for hours.
+# Seed a small OSV set that matches the n-1 libraries in the software templates.
+- name: Request TPA OIDC token
+  ansible.builtin.uri:
+    url: "https://{{ keycloak_hostname }}/realms/{{ keycloak_trustify_realm }}/protocol/openid-connect/token"
+    method: POST
+    body_format: form-urlencoded
+    body:
+      grant_type: client_credentials
+      client_id: cli
+      client_secret: cli-demo-secret
+    validate_certs: "{{ validate_ssl_certs }}"
+    status_code: [200]
+  register: tpa_seed_token
+  retries: 12
+  delay: 10
+  until: tpa_seed_token.status | default(0) == 200
+  failed_when: false
+
+- name: Upload demo OSV advisories into TPA
+  ansible.builtin.uri:
+    url: "https://server{{ tpa_app_domain }}/api/v3/advisory?format=osv"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ tpa_seed_token.json.access_token }}"
+      Content-Type: application/json
+    src: "{{ item }}"
+    validate_certs: "{{ validate_ssl_certs }}"
+    status_code: [200, 201]
+  loop: "{{ query('fileglob', playbook_dir + '/../files/tpa-advisories/*.json') }}"
+  loop_control:
+    label: "{{ item | basename }}"
+  when:
+    - tpa_seed_token.json.access_token is defined
+  failed_when: false
+  register: tpa_seed_uploads
+
+- name: Show TPA advisory seed result
+  ansible.builtin.debug:
+    msg: "TPA advisory {{ item.item | basename }} HTTP {{ item.status | default('skipped') }}"
+  loop: "{{ tpa_seed_uploads.results | default([]) }}"
+  loop_control:
+    label: "{{ item.item | default('n/a') }}"
+  when: tpa_seed_uploads.results is defined

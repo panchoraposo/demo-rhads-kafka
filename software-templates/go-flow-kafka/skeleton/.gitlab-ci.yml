@@ -1,0 +1,33 @@
+# Documentation-only pipeline for Developer Hub (TechDocs).
+# Application builds, signing, ACS, and Conforma run on OpenShift Pipelines (Tekton).
+stages:
+  - docs
+
+variables:
+  GIT_SSL_NO_VERIFY: "true"
+
+techdocs:
+  stage: docs
+  script:
+    - |
+      set -euo pipefail
+      if [ -f mkdocs.yml ]; then
+        CFG=mkdocs.yml
+      elif [ -f mkdocs.yaml ]; then
+        CFG=mkdocs.yaml
+      elif [ -f docs/mkdocs.yaml ]; then
+        CFG=docs/mkdocs.yaml
+      elif [ -f docs/mkdocs.yml ]; then
+        CFG=docs/mkdocs.yml
+      else
+        echo "FAIL: no mkdocs config (expected docs/mkdocs.yaml)"
+        exit 1
+      fi
+      echo "Building TechDocs with ${CFG}"
+      mkdocs build -f "${CFG}" -d public
+  artifacts:
+    paths:
+      - public
+    expire_in: 7 days
+  rules:
+    - if: $CI_COMMIT_BRANCH

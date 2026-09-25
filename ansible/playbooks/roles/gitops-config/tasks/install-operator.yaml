@@ -1,0 +1,113 @@
+---
+- name: Create openshift-gitops-operator namespace
+  kubernetes.core.k8s:
+    api_version: v1
+    kind: Namespace
+    name: openshift-gitops-operator
+    state: present
+
+- name: Render OperatorGroup and Subscription manifest
+  ansible.builtin.template:
+    src: gitops-subscription.yaml.j2
+    dest: "{{ output_file }}"
+
+- name: Apply OperatorGroup and Subscription
+  kubernetes.core.k8s:
+    state: present
+    src: "{{ output_file }}"
+
+- name: Wait for GitOps Operator CSV to succeed
+  kubernetes.core.k8s_info:
+    api_version: operators.coreos.com/v1alpha1
+    kind: ClusterServiceVersion
+    namespace: openshift-gitops-operator
+  register: gitops_csvs
+  until: >
+    gitops_csvs.resources | selectattr('metadata.name', 'search', 'gitops') |
+    selectattr('status.phase', 'equalto', 'Succeeded') | list | length > 0
+  retries: 40
+  delay: 15
+
+- name: Wait for GitOps Operator Deployment to be ready
+  kubernetes.core.k8s_info:
+    api_version: apps/v1
+    kind: Deployment
+    name: openshift-gitops-operator-controller-manager
+    namespace: openshift-gitops-operator
+  register: deploy_status
+  until: >
+    deploy_status.resources | length > 0 and
+    deploy_status.resources[0].status.availableReplicas is defined and
+    deploy_status.resources[0].status.availableReplicas > 0
+  retries: 30
+  delay: 10
+
+- name: Create openshift-gitops namespace
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: "{{ gitops_namespace }}"
+
+- name: Create ArgoCD instance
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: argoproj.io/v1alpha1
+      kind: ArgoCD
+      metadata:
+        name: openshift-gitops
+        namespace: "{{ gitops_namespace }}"
+      spec:
+        server:
+          insecure: true
+          route:
+            enabled: true
+            host: "{{ argocd_host }}"
+        controller:
+          resources:
+            limits:
+              memory: 4Gi
+              cpu: "2"
+            requests:
+              memory: 1Gi
+              cpu: 500m
+        repo:
+          resources:
+            limits:
+              memory: 1Gi
+            requests:
+              memory: 256Mi
+
+- name: Wait for ArgoCD server deployment
+  kubernetes.core.k8s_info:
+    api_version: apps/v1
+    kind: Deployment
+    name: openshift-gitops-server
+    namespace: "{{ gitops_namespace }}"
+  register: deployment_status
+  retries: 40
+  delay: 15
+  until: >
+    deployment_status.resources | length > 0 and
+    deployment_status.resources[0].status.readyReplicas is defined and
+    deployment_status.resources[0].status.readyReplicas > 0
+
+- name: Grant cluster-admin to Argo CD application controller
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: rbac.authorization.k8s.io/v1
+      kind: ClusterRoleBinding
+      metadata:
+        name: openshift-gitops-argocd-application-controller-admin
+      subjects:
+        - kind: ServiceAccount
+          name: "{{ argocd_controller_sa }}"
+          namespace: "{{ gitops_namespace }}"
+      roleRef:
+        apiGroup: rbac.authorization.k8s.io
+        kind: ClusterRole
+        name: cluster-admin

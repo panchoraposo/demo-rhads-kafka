@@ -1,0 +1,137 @@
+---
+# Disable Auto DevOps (it has no runners and fights the docs-only .gitlab-ci.yml).
+# Register one instance runner for TechDocs. Trust Fulcio via the GitLab chart.
+- name: Disable Auto DevOps instance-wide
+  ansible.builtin.uri:
+    url: "https://{{ gitlab_host }}/api/v4/application/settings"
+    method: PUT
+    headers:
+      PRIVATE-TOKEN: "{{ gitlab_pat }}"
+    body_format: json
+    body:
+      auto_devops_enabled: false
+    status_code: [200, 400]
+    validate_certs: "{{ validate_ssl_certs }}"
+
+- name: Lookup groups to disable Auto DevOps
+  ansible.builtin.uri:
+    url: "https://{{ gitlab_host }}/api/v4/groups?per_page=100"
+    method: GET
+    headers:
+      PRIVATE-TOKEN: "{{ gitlab_pat }}"
+    status_code: [200]
+    validate_certs: "{{ validate_ssl_certs }}"
+  register: gitlab_groups
+
+- name: Disable Auto DevOps on groups
+  ansible.builtin.uri:
+    url: "https://{{ gitlab_host }}/api/v4/groups/{{ item.id }}"
+    method: PUT
+    headers:
+      PRIVATE-TOKEN: "{{ gitlab_pat }}"
+    body_format: json
+    body:
+      auto_devops_enabled: false
+    status_code: [200, 400]
+    validate_certs: "{{ validate_ssl_certs }}"
+  loop: "{{ gitlab_groups.json }}"
+  loop_control:
+    label: "{{ item.full_path | default(item.path) }}"
+
+- name: List projects to disable Auto DevOps
+  ansible.builtin.uri:
+    url: "https://{{ gitlab_host }}/api/v4/projects?per_page=100&simple=true"
+    method: GET
+    headers:
+      PRIVATE-TOKEN: "{{ gitlab_pat }}"
+    status_code: [200]
+    validate_certs: "{{ validate_ssl_certs }}"
+  register: gitlab_projects
+
+- name: Disable Auto DevOps on projects
+  ansible.builtin.uri:
+    url: "https://{{ gitlab_host }}/api/v4/projects/{{ item.id }}"
+    method: PUT
+    headers:
+      PRIVATE-TOKEN: "{{ gitlab_pat }}"
+    body_format: json
+    body:
+      auto_devops_enabled: false
+    status_code: [200, 400]
+    validate_certs: "{{ validate_ssl_certs }}"
+  loop: "{{ gitlab_projects.json }}"
+  loop_control:
+    label: "{{ item.path_with_namespace }}"
+
+- name: List instance runners
+  ansible.builtin.uri:
+    url: "https://{{ gitlab_host }}/api/v4/runners/all?per_page=100"
+    method: GET
+    headers:
+      PRIVATE-TOKEN: "{{ gitlab_pat }}"
+    status_code: [200]
+    validate_certs: "{{ validate_ssl_certs }}"
+  register: gitlab_runners
+
+- name: Create docs instance runner
+  ansible.builtin.uri:
+    url: "https://{{ gitlab_host }}/api/v4/user/runners"
+    method: POST
+    headers:
+      PRIVATE-TOKEN: "{{ gitlab_pat }}"
+    body_format: json
+    body:
+      runner_type: instance_type
+      description: rhads-docs
+      tag_list: docs
+      run_untagged: true
+    status_code: [201]
+    validate_certs: "{{ validate_ssl_certs }}"
+  register: gitlab_runner_create
+  when: gitlab_runners.json | selectattr('description', 'equalto', 'rhads-docs') | list | length == 0
+
+- name: Reset docs runner authentication token
+  ansible.builtin.uri:
+    url: "https://{{ gitlab_host }}/api/v4/runners/{{ (gitlab_runners.json | selectattr('description', 'equalto', 'rhads-docs') | list | first).id }}/reset_authentication_token"
+    method: POST
+    headers:
+      PRIVATE-TOKEN: "{{ gitlab_pat }}"
+    status_code: [201, 200]
+    validate_certs: "{{ validate_ssl_certs }}"
+  register: gitlab_runner_reset
+  when: gitlab_runners.json | selectattr('description', 'equalto', 'rhads-docs') | list | length > 0
+
+- name: Store GitLab runner token
+  kubernetes.core.k8s:
+    state: present
+    force: true
+    definition:
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: gitlab-runner-auth
+        namespace: "{{ gitlab_namespace }}"
+        labels:
+          app: gitlab-runner
+      type: Opaque
+      stringData:
+        token: "{{ gitlab_runner_create.json.token | default(gitlab_runner_reset.json.token | default('pending'), true) }}"
+
+- name: Re-verify stored X.509 / gitsign commit signatures
+  ansible.builtin.shell: |
+    oc --context {{ oc_context }} -n {{ gitlab_namespace }} exec deploy/gitlab -c gitlab -- gitlab-rails runner "$(cat <<'RUBY'
+    CommitSignatures::X509CommitSignature.find_each do |s|
+      proj = s.project
+      next unless proj
+      c = proj.repository.commit_by(oid: s.commit_sha)
+      next unless c
+      x = Gitlab::X509::Commit.new(c)
+      n = Gitlab::X509::Signature.new(x.signature_text, x.signed_text, c.committer_email, c.created_at, proj)
+      s.update!(verification_status: n.verification_status)
+    end
+    RUBY
+    )"
+  args:
+    executable: /bin/bash
+  failed_when: false
+  changed_when: true

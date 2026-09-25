@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: quay-config-bundle
+  namespace: {{ quay_namespace }}
+type: Opaque
+stringData:
+  config.yaml: |
+    SERVER_HOSTNAME: {{ quay_host | regex_replace('^https?://', '') }}
+    PREFERRED_URL_SCHEME: https
+    EXTERNAL_TLS_TERMINATION: true
+    FEATURE_USER_INITIALIZE: true
+    FEATURE_USER_CREATION: true
+    FEATURE_DIRECT_LOGIN: true
+    BROWSER_API_CALLS_XHR_ONLY: false
+    SUPER_USERS:
+      - {{ quay_admin_user }}

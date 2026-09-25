@@ -1,0 +1,58 @@
+gitlab:
+  image: {{ gitlab_image | default('docker.io/gitlab/gitlab-ce:19.3.0-ce.0') }}
+
+  host: "{{ gitlab_hostname }}"
+  https: "true"
+
+  email:
+    address: "gitlab@{{ openshift_base_domain }}"
+    displayName: "GitLab Admin"
+    replyTo: "noreply@{{ openshift_base_domain }}"
+  rootEmail: "root@{{ openshift_base_domain }}"
+
+  rootPassword: ""
+
+  keyBase:
+    db: "0123456789"
+    otp: "0123456789"
+    secret: "0123456789"
+  
+  ssh:
+    host:
+    port: "22"
+
+  smtp:
+    enabled: "false"
+    domain: "rhdemo.com"
+    host:
+    port: "587"
+    user: "gitlab"
+    password: "gitlab"
+
+  #oidc:
+  #  enabled: true
+  #  clientId: gitlab
+  #  clientSecret: ""
+  #  issuer: "https://{{ keycloak_hostname }}/realms/backstage"
+  #  redirectUri: "https://{{ gitlab_hostname }}/users/auth/openid_connect/callback"
+  #  scope: "openid profile email groups"
+  #  userIdAttribute: "preferred_username"
+  #  userNameAttribute: "name"
+  #  groupsAttribute: "groups"
+
+  users:
+    count: {{ gitlab_users_count | default(0) }}
+    
+  groups:
+    - name: rhdh
+
+postgresql:
+  dbUser: gitlab
+  dbPassword: passw0rd
+  dbName: gitlab_production
+
+cluster:
+  subdomain: "{{ openshift_base_domain }}"
+
+orchestrator:
+  namespace: orchestrator

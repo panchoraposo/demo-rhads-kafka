@@ -1,0 +1,29 @@
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaTopic
+metadata:
+  name: flow-in
+  namespace: kafka
+  labels:
+    strimzi.io/cluster: rhads-kafka
+    app.kubernetes.io/part-of: rhads-demo
+spec:
+  partitions: 3
+  replicas: 1
+  config:
+    retention.ms: 604800000
+    cleanup.policy: delete
+---
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaTopic
+metadata:
+  name: flow-out
+  namespace: kafka
+  labels:
+    strimzi.io/cluster: rhads-kafka
+    app.kubernetes.io/part-of: rhads-demo
+spec:
+  partitions: 3
+  replicas: 1
+  config:
+    retention.ms: 604800000
+    cleanup.policy: delete

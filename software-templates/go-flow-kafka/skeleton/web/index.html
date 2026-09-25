@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <title>${{values.component_id}} — Trip Planner (Go/Kafka)</title>
+  <style>
+    body { font-family: RedHatText, Helvetica, Arial, sans-serif; margin: 2rem; max-width: 720px; }
+    label { display:block; margin-top: .75rem; font-weight: 600; }
+    input, select, textarea { width: 100%; padding: .4rem; margin-top: .25rem; }
+    button { margin-top: 1rem; margin-right: .5rem; padding: .5rem 1rem; }
+    #status { margin-top: 1.5rem; padding: 1rem; background: #f5f5f5; white-space: pre-wrap; }
+    .actions { display:none; }
+  </style>
+</head>
+<body>
+  <h1>Trip Planner — Go + Kafka HITL</h1>
+  <p>Same CloudEvents contract as Quarkus Flow (<code>flow-in</code> / <code>flow-out</code>). Approve or reject after the plan is ready.</p>
+  <form id="planForm">
+    <label>Destination <input name="destination" value="California coast" required/></label>
+    <label>Start date <input name="startDate" type="date" required/></label>
+    <label>Days <input name="days" type="number" value="7" min="1"/></label>
+    <label>Trip type
+      <select name="tripType"><option>family</option><option>adventure</option><option>business</option></select>
+    </label>
+    <label>Travelers <input name="travelers" type="number" value="4" min="1"/></label>
+    <label>Budget <input name="budget" type="number" value="2500"/></label>
+    <label>Preferences <textarea name="preferences">scenic drives, kid-friendly stops</textarea></label>
+    <button type="submit">Plan trip</button>
+  </form>
+  <div class="actions" id="actions">
+    <button type="button" id="approve">Approve trip</button>
+    <button type="button" id="reject">Reject trip</button>
+  </div>
+  <div id="status"></div>
+  <script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,17 @@
+apiVersion: backstage.io/v1alpha1
+kind: Domain
+metadata:
+  name: software-supply-chain
+  description: Secure software supply chain on Red Hat Advanced Developer Suite
+  tags: [rhads, security, gitops]
+spec:
+  owner: group:default/platform-engineers
+---
+apiVersion: backstage.io/v1alpha1
+kind: System
+metadata:
+  name: rhads-platform
+  description: GitLab, Developer Hub, RHTAS, TPA, ACS, Quay and OpenShift Pipelines
+spec:
+  owner: group:default/platform-engineers
+  domain: software-supply-chain

@@ -1,0 +1,11 @@
+site_name: ${{values.component_id}}
+site_description: ${{values.description}}
+docs_dir: docs
+repo_url: https://${{values.host}}/${{values.destination}}
+edit_uri: edit/main/docs
+
+plugins:
+  - techdocs-core
+
+nav:
+  - Introduction: index.md

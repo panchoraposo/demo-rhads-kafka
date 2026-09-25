@@ -1,0 +1,98 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: rhads-conforma-policy
+  namespace: rhads-ci
+  labels:
+    app.kubernetes.io/part-of: rhads-demo
+data:
+  # Documented collections: https://conforma.dev/docs/policy/release_policy.html
+  # Config sources: github.com/conforma/config//{redhat,redhat-no-hermetic,slsa3}
+  # Git commit signature is enforced by rhads-conforma-verify (gitsign verify)
+  # when STRICT=true. Do not inject a second Conforma source for it: a local
+  # file:/// policy source makes ec report "no successes, warnings, or failures".
+  policy.yaml: |
+    ---
+    name: Red Hat + SLSA3
+    description: >
+      Official Conforma collections @redhat and @slsa3
+      (https://conforma.dev/docs/policy/release_policy.html,
+      github.com/conforma/config//{redhat,slsa3}). Hermetic/prefetch
+      excludes match github.com/conforma/config//redhat-no-hermetic
+      because this demo builds with OpenShift Builds and Nexus, not
+      Konflux hermetic builds. Git commit signatures are gated by the
+      Tekton task (STRICT=false on dev, STRICT=true on staging/prod).
+    sources:
+      - name: Default
+        policy:
+          - github.com/conforma/policy//policy/lib
+          - github.com/conforma/policy//policy/release
+        data:
+          - github.com/release-engineering/rhtap-ec-policy//data
+        config:
+          include:
+            - '@redhat'
+            - '@slsa3'
+          exclude:
+            - hermetic_build_task
+            - tasks.required_tasks_found:prefetch-dependencies
+            # Not Konflux: cluster-local tasks + OpenShift Builds, not buildah/catalog.
+            - trusted_task
+            - buildah_build_task
+            - slsa_build_scripted_build.image_built_by_trusted_task
+            # CVEs are enforced by ACS in this demo, not Konflux clair attestations.
+            - cve
+            # Same skip as github.com/conforma/config//tekton-slsa3-v0.7
+            - slsa_source_correlated
+            - slsa_source_correlated.attested_source_code_reference
+            - slsa_source_correlated.source_code_reference_provided
+            # Chains stores TaskRun attestations; Konflux expects a PipelineRun
+            # attestation + source-container + on-prem CPE labels.
+            - attestation_type.pipelinerun_attestation_found
+            - source_image
+            - labels.required_labels
+            # SBOM is generated and uploaded to TPA; Conforma expects Konflux-style
+            # SBOM/base-image attestations that OpenShift Builds do not produce.
+            - sbom.found
+            - sbom_cyclonedx.found
+            - base_image_registries.base_image_info_found
+        ruleData:
+          allowed_builder_ids:
+            - https://tekton.dev/chains/v2
+  # Kept for documentation / future EC embedding; the task enforces this in bash.
+  git_commit_signed.rego: |
+    package policy.release.rhads_source
+
+    import rego.v1
+
+    signed if {
+      object.get(data.rule_data, "source_git_signed", false) == true
+    }
+
+    signed if {
+      object.get(data.rule_data, "source_git_signed", "") == "true"
+    }
+
+    revision := object.get(data.rule_data, "source_git_revision", "unknown")
+
+    # METADATA
+    # title: Source git commit is Sigstore-signed
+    # description: >
+    #   The git commit that produced this image must be signed with gitsign
+    #   using the cluster RHTAS Fulcio and Rekor. Unsigned scaffold commits
+    #   may land in dev so TPA receives the first SBOM; they cannot be
+    #   promoted to staging or production.
+    # custom:
+    #   short_name: git_commit_signed
+    #   failure_msg: Source git commit %s is not Sigstore-signed (gitsign / RHTAS Fulcio + Rekor). Sign from Dev Spaces, push, and tag the signed commit.
+    #   collections:
+    #     - rhads
+    #   effective_on: "2024-01-01T00:00:00Z"
+    deny contains result if {
+      not signed
+      result := {
+        "code": "rhads_source.git_commit_signed",
+        "msg": sprintf("Source git commit %s is not Sigstore-signed (gitsign / RHTAS Fulcio + Rekor). Unsigned scaffold commits cannot be promoted. Sign from Dev Spaces, push, and tag the signed commit.", [revision]),
+        "term": revision,
+      }
+    }

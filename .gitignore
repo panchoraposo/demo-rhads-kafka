@@ -1,0 +1,16 @@
+.vscode/*
+!.vscode/settings.json
+.history/
+.DS_Store
+*.crt
+*.pem
+*.key
+ansible/venv/
+venv/
+__pycache__/
+*.pyc
+/tmp/
+.idea/
+*.retry
+inventory.yml
+!ansible/inventory.example.yml

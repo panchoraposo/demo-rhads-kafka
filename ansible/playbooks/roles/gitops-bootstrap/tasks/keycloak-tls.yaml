@@ -1,0 +1,22 @@
+---
+- name: Generate TLS material for Keycloak hostname
+  ansible.builtin.command:
+    cmd: >
+      openssl req -x509 -nodes -days 365 -newkey rsa:2048
+      -subj "/CN={{ keycloak_hostname }}"
+      -keyout /tmp/rhads-kc.key -out /tmp/rhads-kc.crt
+  changed_when: true
+
+- name: Create Keycloak TLS secret
+  kubernetes.core.k8s:
+    state: present
+    namespace: "{{ secret_namespace }}"
+    definition:
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: "{{ secret_name }}"
+      type: kubernetes.io/tls
+      data:
+        tls.crt: "{{ lookup('file', '/tmp/rhads-kc.crt') | b64encode }}"
+        tls.key: "{{ lookup('file', '/tmp/rhads-kc.key') | b64encode }}"

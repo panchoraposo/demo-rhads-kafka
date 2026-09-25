@@ -1,0 +1,68 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  labels:
+    app: gitlab
+  name: gitlab-cm
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+data:
+  GITLAB_OMNIBUS_CONFIG: |
+    external_url 'https://{{ $.Values.gitlab.host }}'
+    nginx['listen_port'] = 80
+    nginx['listen_https'] = false
+    nginx['redirect_http_to_https'] = false
+    nginx['proxy_set_headers'] = {
+      "X-Forwarded-Proto" => "https",
+      "X-Forwarded-Ssl" => "on",
+      "Host" => "{{ $.Values.gitlab.host }}"
+    }
+    gitlab_rails['gitlab_shell_ssh_port'] = 22
+    gitlab_rails['time_zone'] = 'UTC'
+    gitlab_rails['gitlab_email_from'] = '{{ $.Values.gitlab.email.address }}'
+    gitlab_rails['gitlab_email_display_name'] = '{{ $.Values.gitlab.email.displayName }}'
+    puma['worker_processes'] = 2
+    sidekiq['max_concurrency'] = 10
+    prometheus_monitoring['enable'] = false
+    letsencrypt['enable'] = false
+    package['modify_kernel_parameters'] = false
+    gitlab_rails['monitoring_whitelist'] = ['127.0.0.1', '10.0.0.0/8', '172.16.0.0/12']
+    gitlab_rails['trusted_proxies'] = ['10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16']
+    gitlab_rails['password_number_required'] = false
+    gitlab_rails['password_uppercase_required'] = false
+    gitlab_rails['password_lowercase_required'] = false
+    gitlab_rails['password_symbol_required'] = false
+    gitlab_rails['minimum_password_length'] = 8
+    gitlab_rails['db_key_base'] = ENV['GITLAB_SECRETS_DB_KEY_BASE'] if ENV['GITLAB_SECRETS_DB_KEY_BASE'].to_s != ''
+    gitlab_rails['otp_key_base'] = ENV['GITLAB_SECRETS_OTP_KEY_BASE'] if ENV['GITLAB_SECRETS_OTP_KEY_BASE'].to_s != ''
+    gitlab_rails['secret_key_base'] = ENV['GITLAB_SECRETS_SECRET_KEY_BASE'] if ENV['GITLAB_SECRETS_SECRET_KEY_BASE'].to_s != ''
+    gitlab_rails['encrypted_settings_key_base'] = ENV['GITLAB_SECRETS_ENCRYPTED_SETTINGS_KEY_BASE'] if ENV['GITLAB_SECRETS_ENCRYPTED_SETTINGS_KEY_BASE'].to_s != ''
+    gitlab_rails['active_record_encryption_primary_key'] = [ENV['GITLAB_AR_PRIMARY_KEY']] if ENV['GITLAB_AR_PRIMARY_KEY'].to_s != ''
+    gitlab_rails['active_record_encryption_deterministic_key'] = [ENV['GITLAB_AR_DETERMINISTIC_KEY']] if ENV['GITLAB_AR_DETERMINISTIC_KEY'].to_s != ''
+    gitlab_rails['active_record_encryption_key_derivation_salt'] = ENV['GITLAB_AR_SALT'] if ENV['GITLAB_AR_SALT'].to_s != ''
+    gitlab_rails['omniauth_enabled'] = true
+    gitlab_rails['omniauth_allow_single_sign_on'] = ['openid_connect']
+    gitlab_rails['omniauth_block_auto_created_users'] = false
+    gitlab_rails['omniauth_auto_link_user'] = ['openid_connect']
+    if ENV['OIDC_CLIENT_SECRET'].to_s != ''
+      gitlab_rails['omniauth_providers'] = [
+        {
+          'name' => 'openid_connect',
+          'label' => 'Keycloak',
+          'args' => {
+            'name' => 'openid_connect',
+            'scope' => ['openid', 'profile', 'email'],
+            'response_type' => 'code',
+            'issuer' => ENV['OIDC_ISSUER'],
+            'discovery' => true,
+            'client_auth_method' => 'query',
+            'uid_field' => 'preferred_username',
+            'client_options' => {
+              'identifier' => ENV.fetch('OIDC_CLIENT_ID', 'gitlab'),
+              'secret' => ENV['OIDC_CLIENT_SECRET'],
+              'redirect_uri' => ENV['OIDC_REDIRECT_URI']
+            }
+          }
+        }
+      ]
+    end

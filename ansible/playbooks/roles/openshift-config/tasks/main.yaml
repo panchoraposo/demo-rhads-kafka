@@ -1,0 +1,6 @@
+---
+- name: Discover OpenShift cluster domain
+  include_tasks: set-vars.yaml
+
+- name: Snapshot OpenShift OAuth identity providers
+  include_tasks: preserve-oauth.yaml

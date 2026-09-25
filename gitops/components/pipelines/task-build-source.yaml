@@ -1,0 +1,177 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: rhads-build-source
+  namespace: rhads-ci
+  labels:
+    app.kubernetes.io/part-of: rhads-demo
+spec:
+  params:
+    - name: LANGUAGE
+      type: string
+      default: maven
+  workspaces:
+    - name: source
+    - name: maven-settings
+      optional: true
+  steps:
+    - name: compile
+      # JDK 21 so quarkus-hitl / camel-supervisor (release 21) and n-1 templates (release 17) both compile.
+      image: registry.access.redhat.com/ubi9/openjdk-21:1.23
+      env:
+        - name: LANGUAGE
+          value: $(params.LANGUAGE)
+        - name: MAVEN_OPTS
+          value: "-Dmaven.wagon.http.ssl.insecure=true -Dmaven.wagon.http.ssl.allowall=true"
+      script: |
+        #!/usr/bin/env bash
+        set -euo pipefail
+        echo "============================================================"
+        echo "[SSSC] Compile application sources via Nexus"
+        echo "Control: dependencies resolve from the platform Nexus (preloaded / proxied),"
+        echo "         then from a seeded local repo on the build PVC (rhads/m2-seed.tar.gz)."
+        echo "Language: ${LANGUAGE}"
+        echo "============================================================"
+        if [ "${LANGUAGE}" != "maven" ]; then
+          echo "Skipping Maven (language=${LANGUAGE})"
+          exit 0
+        fi
+        ROOT="$(workspaces.source.path)"
+        APP="${ROOT}/source"
+        if [ ! -d "${APP}" ]; then
+          APP="${ROOT}"
+        fi
+        cd "${APP}"
+        echo "tools: $(mvn -v | head -1)"
+        SETTINGS="$(workspaces.maven-settings.path)/settings.xml"
+        MVN_ARGS=(-B -DskipTests -T 1C)
+        if [ -f "${SETTINGS}" ]; then
+          echo "Maven settings: ${SETTINGS}"
+          grep -E '<url>|<id>|<mirrorOf>|<updatePolicy>' "${SETTINGS}" || true
+          MVN_ARGS+=(-s "${SETTINGS}")
+        else
+          echo "WARN: Nexus settings.xml not mounted; Maven will use defaults"
+        fi
+        # Sibling of source/ on the persistent build PVC. git-clone only mounts source/.
+        REPO="${ROOT}/repository"
+        mkdir -p "${REPO}"
+        SEED_URL="${MAVEN_SEED_URL:-http://nexus.nexus.svc:8081/repository/raw-hosted/rhads/m2-seed.tar.gz}"
+        echo "Persistent Maven local repository: ${REPO} ($(du -sh "${REPO}" 2>/dev/null | awk '{print $1}'))"
+        # Nexus raw often rejects HEAD (curl -I) even when GET works, so never probe with -I.
+        if [ ! -f "${REPO}/.rhads-seeded" ]; then
+          if curl -sf --max-time 180 -o /tmp/m2-seed.tar.gz "${SEED_URL}"; then
+            echo "SEED: extracting preloaded Maven repository from Nexus"
+            tar -xzf /tmp/m2-seed.tar.gz -C "${REPO}"
+            touch "${REPO}/.rhads-seeded"
+            echo "Seeded Maven cache: $(du -sh "${REPO}" | awk '{print $1}')"
+          else
+            echo "CACHE COLD: m2 seed not published yet (Job rhads-maven-warm); resolving via Nexus"
+          fi
+        fi
+        CACHE_KB="$(du -sk "${REPO}" 2>/dev/null | awk '{print $1}')"
+        MVN_ARGS+=("-Dmaven.repo.local=${REPO}")
+        if [ "${CACHE_KB:-0}" -gt 10240 ]; then
+          echo "CACHE WARM: ${CACHE_KB} KiB already on the PVC; Maven offline first"
+          if ! mvn "${MVN_ARGS[@]}" -o package; then
+            echo "CACHE WARM incomplete; resolving missing artifacts from Nexus"
+            mvn "${MVN_ARGS[@]}" package
+          fi
+        else
+          echo "CACHE COLD: resolving via Nexus into the persistent local repository"
+          mvn "${MVN_ARGS[@]}" package
+        fi
+        chmod -R g+rwX "${APP}/target" 2>/dev/null || true
+        echo "Maven cache after build: $(du -sh "${REPO}" | awk '{print $1}')"
+        echo
+        echo "PASS: Maven package completed (Nexus + persistent local cache). Artifacts are in target/."
+    - name: npm
+      image: registry.access.redhat.com/ubi9/nodejs-18:1-108
+      env:
+        - name: LANGUAGE
+          value: $(params.LANGUAGE)
+      script: |
+        #!/usr/bin/env bash
+        set -euo pipefail
+        if [ "${LANGUAGE}" != "npm" ]; then
+          echo "Skipping npm (language=${LANGUAGE})"
+          exit 0
+        fi
+        echo "============================================================"
+        echo "[SSSC] npm install via Nexus"
+        echo "Control: the registry is the platform Nexus npm group, not registry.npmjs.org."
+        echo "         The npm cache lives on the build PVC next to the git checkout."
+        echo "============================================================"
+        ROOT="$(workspaces.source.path)"
+        APP="${ROOT}/source"
+        if [ ! -d "${APP}" ]; then
+          APP="${ROOT}"
+        fi
+        cd "${APP}"
+        echo "tools: node=$(node -v) npm=$(npm -v)"
+        if [ -f "$(workspaces.maven-settings.path)/.npmrc" ]; then
+          cp "$(workspaces.maven-settings.path)/.npmrc" "${HOME}/.npmrc"
+          echo "npmrc: $(cat "${HOME}/.npmrc")"
+        fi
+        export npm_config_cache="${ROOT}/npm"
+        mkdir -p "${npm_config_cache}"
+        echo "Persistent npm cache: ${npm_config_cache} ($(du -sh "${npm_config_cache}" 2>/dev/null | awk '{print $1}'))"
+        NPM_ARGS=(--omit=dev --no-audit --no-fund --cache="${npm_config_cache}")
+        if [ -d "${npm_config_cache}/_cacache" ]; then
+          echo "CACHE WARM: npm --offline"
+          NPM_ARGS+=(--offline)
+        else
+          echo "CACHE COLD: npm --prefer-offline (fill persistent cache from Nexus)"
+          NPM_ARGS+=(--prefer-offline)
+        fi
+        if [ -f package-lock.json ]; then
+          npm ci "${NPM_ARGS[@]}" || { echo "offline/ci failed; retrying from Nexus"; npm ci --omit=dev --prefer-offline --no-audit --no-fund --cache="${npm_config_cache}"; }
+        else
+          npm install "${NPM_ARGS[@]}" || npm install --omit=dev --prefer-offline --no-audit --no-fund --cache="${npm_config_cache}"
+        fi
+        echo "npm cache after install: $(du -sh "${npm_config_cache}" | awk '{print $1}')"
+        echo "PASS: npm install completed (Nexus + persistent cache). node_modules will be copied into the image."
+    - name: go
+      image: registry.access.redhat.com/ubi9/go-toolset:1.21
+      env:
+        - name: LANGUAGE
+          value: $(params.LANGUAGE)
+      script: |
+        #!/usr/bin/env bash
+        set -euo pipefail
+        if [ "${LANGUAGE}" != "go" ]; then
+          echo "Skipping Go (language=${LANGUAGE})"
+          exit 0
+        fi
+        echo "============================================================"
+        echo "[SSSC] Go modules via Nexus"
+        echo "Control: GOPROXY is the platform Nexus go-group, not proxy.golang.org."
+        echo "         Module cache + vendor/ live on the build PVC for the image build."
+        echo "============================================================"
+        ROOT="$(workspaces.source.path)"
+        APP="${ROOT}/source"
+        if [ ! -d "${APP}" ]; then
+          APP="${ROOT}"
+        fi
+        cd "${APP}"
+        if [ -f "$(workspaces.maven-settings.path)/go.env" ]; then
+          set -a
+          # shellcheck disable=SC1091
+          source "$(workspaces.maven-settings.path)/go.env"
+          set +a
+        else
+          export GOPROXY="http://nexus.nexus.svc:8081/repository/go-group/"
+          export GOSUMDB=off
+          export GOINSECURE=nexus.nexus.svc
+          export GONOSUMDB='*'
+        fi
+        export GOMODCACHE="${ROOT}/gomod"
+        mkdir -p "${GOMODCACHE}"
+        echo "tools: $(go version)"
+        echo "GOPROXY=${GOPROXY}"
+        echo "Persistent Go module cache: ${GOMODCACHE} ($(du -sh "${GOMODCACHE}" 2>/dev/null | awk '{print $1}'))"
+        # Skeleton may ship without go.sum; tidy resolves the graph through Nexus.
+        go mod tidy
+        go mod vendor
+        chmod -R g+rwX vendor go.sum "${GOMODCACHE}" 2>/dev/null || true
+        echo "Go module cache after download: $(du -sh "${GOMODCACHE}" | awk '{print $1}')"
+        echo "PASS: go mod tidy + vendor completed via Nexus. Image build uses -mod=vendor (offline)."

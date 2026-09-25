@@ -1,0 +1,5 @@
+# Written by the promote pipeline. Keep a valid default so first sync succeeds.
+image:
+  tag: latest
+environment: dev
+replicaCount: 1

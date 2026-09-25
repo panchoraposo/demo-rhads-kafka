@@ -1,0 +1,46 @@
+schemaVersion: 2.2.0
+metadata:
+  name: ${{values.component_id}}
+  version: 1.0.0
+  displayName: ${{values.component_id}}
+  description: ${{values.description}}
+  tags: [Go, Kafka, HITL, RHADS]
+  projectType: go
+# Default = community golang image for the IDE (matches community Dockerfile story).
+# Modules still resolve via Nexus go-group (GOPROXY below).
+components:
+  - name: go
+    container:
+      image: docker.io/library/golang:1.21.0-bookworm
+      memoryLimit: 2Gi
+      mountSources: true
+      env:
+        # Same Nexus go-group as the Tekton build-source task (SSSC).
+        - name: GOPROXY
+          value: http://nexus.nexus.svc:8081/repository/go-group/
+        - name: GOSUMDB
+          value: "off"
+        - name: GOINSECURE
+          value: nexus.nexus.svc
+        - name: GONOSUMDB
+          value: "*"
+        - name: KAFKA_BOOTSTRAP_SERVERS
+          value: rhads-kafka-kafka-bootstrap.kafka.svc:9092
+      endpoints:
+        - name: http-go
+          targetPort: 8080
+commands:
+  - id: run
+    exec:
+      component: go
+      commandLine: "go run ./cmd/server"
+      workingDir: ${PROJECT_SOURCE}
+  - id: download
+    exec:
+      component: go
+      commandLine: "echo \"[SSSC] go mod tidy via Nexus GOPROXY=${GOPROXY}\" && go mod tidy && go mod vendor"
+      workingDir: ${PROJECT_SOURCE}
+  - id: rhda
+    exec:
+      component: go
+      commandLine: "echo 'Open Command Palette → Red Hat Dependency Analytics on go.mod (backend is in-cluster TPA)'"

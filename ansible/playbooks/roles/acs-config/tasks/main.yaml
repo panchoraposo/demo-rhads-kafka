@@ -1,0 +1,177 @@
+---
+- name: Drop legacy kubernetes.io/hostname pins on Central CR if present
+  ansible.builtin.shell: |
+    set -euo pipefail
+    CTX="{{ oc_context }}"
+    NS="{{ acs_namespace }}"
+    for SELECTOR_PATH in \
+      /spec/central/nodeSelector \
+      /spec/central/db/nodeSelector \
+      /spec/scanner/analyzer/nodeSelector; do
+      HOST=$(oc --context "$CTX" -n "$NS" get central stackrox-central-services -o jsonpath="{${SELECTOR_PATH}.kubernetes.io/hostname}" 2>/dev/null || true)
+      if [ -n "$HOST" ]; then
+        oc --context "$CTX" -n "$NS" patch central stackrox-central-services --type=json \
+          -p="[{\"op\":\"remove\",\"path\":\"${SELECTOR_PATH}\"}]" || true
+      fi
+    done
+  args:
+    executable: /bin/bash
+  changed_when: false
+
+- name: Apply RHACS Central from GitOps (cluster-agnostic worker nodeSelector only)
+  ansible.builtin.command:
+    cmd: oc --context {{ oc_context }} apply -f {{ repo_root }}/gitops/components/rhacs/central.yaml
+  changed_when: true
+
+- name: Wait for ACS Central
+  ansible.builtin.command:
+    cmd: oc --context {{ oc_context }} -n {{ acs_namespace }} rollout status deploy/central --timeout=600s
+  register: wait_central
+  retries: 10
+  delay: 30
+  until: wait_central.rc == 0
+  failed_when: false
+
+- name: Read Central admin password
+  ansible.builtin.command:
+    cmd: oc --context {{ oc_context }} -n {{ acs_namespace }} get secret central-htpasswd -o jsonpath={{ '{.data.password}' }}
+  register: acs_pw_raw
+  failed_when: false
+  changed_when: false
+
+- name: Read Central route
+  kubernetes.core.k8s_info:
+    api_version: route.openshift.io/v1
+    kind: Route
+    name: central
+    namespace: "{{ acs_namespace }}"
+  register: acs_route
+  failed_when: false
+
+- name: Create ACS API token
+  ansible.builtin.uri:
+    url: "https://{{ acs_route.resources[0].spec.host }}/v1/apitokens/generate"
+    method: POST
+    user: admin
+    password: "{{ acs_pw_raw.stdout | b64decode }}"
+    force_basic_auth: true
+    validate_certs: false
+    body_format: json
+    body:
+      name: rhads-ci
+      roles: ["Continuous Integration"]
+    status_code: [200, 201, 400, 401, 409]
+  register: acs_token
+  when:
+    - acs_route.resources | default([]) | length > 0
+    - acs_pw_raw.stdout | default('') | length > 0
+  failed_when: false
+  retries: 12
+  delay: 30
+  until: >-
+    acs_token.status in [200, 201]
+    or (acs_token.json.token | default('') | length > 0)
+
+- name: Store ACS CI secret
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: acs-ci
+        namespace: rhads-ci
+      type: Opaque
+      stringData:
+        api-token: "{{ acs_token.json.token | default('') }}"
+        central-host: "{{ (acs_route.resources[0].spec.host + ':443') if (acs_route.resources | default([]) | length > 0) else '' }}"
+        central-url: "{{ ('https://' + acs_route.resources[0].spec.host) if (acs_route.resources | default([]) | length > 0) else '' }}"
+  when:
+    - acs_route.resources | default([]) | length > 0
+    - acs_token.json.token | default('') | length > 0
+
+- name: Read Quay dockerconfig for ACS registry integration
+  kubernetes.core.k8s_info:
+    kind: Secret
+    name: quay-dockerconfig
+    namespace: "{{ pipelines_namespace }}"
+  register: quay_dc_for_acs
+  failed_when: false
+
+- name: Parse Quay robot credentials
+  ansible.builtin.set_fact:
+    acs_quay_auth: "{{ (quay_dc_for_acs.resources[0].data['.dockerconfigjson'] | b64decode | from_json).auths }}"
+  when: quay_dc_for_acs.resources | default([]) | length > 0
+
+- name: Register in-cluster Quay as an ACS image integration
+  ansible.builtin.uri:
+    url: "https://{{ acs_route.resources[0].spec.host }}/v1/imageintegrations"
+    method: POST
+    user: admin
+    password: "{{ acs_pw_raw.stdout | b64decode }}"
+    force_basic_auth: true
+    validate_certs: false
+    body_format: json
+    body:
+      name: rhads-quay
+      type: docker
+      categories: ["REGISTRY"]
+      docker:
+        endpoint: "{{ (acs_quay_auth.keys() | list)[0] }}"
+        username: "{{ acs_quay_auth[(acs_quay_auth.keys() | list)[0]].username }}"
+        password: "{{ acs_quay_auth[(acs_quay_auth.keys() | list)[0]].password }}"
+        insecure: true
+      skipTestIntegration: true
+    status_code: [200, 201, 400, 409]
+  when:
+    - acs_route.resources | default([]) | length > 0
+    - acs_pw_raw.stdout | default('') | length > 0
+    - acs_quay_auth is defined
+  failed_when: false
+
+- name: List ACS policies
+  ansible.builtin.uri:
+    url: "https://{{ acs_route.resources[0].spec.host }}/v1/policies"
+    method: GET
+    user: admin
+    password: "{{ acs_pw_raw.stdout | b64decode }}"
+    force_basic_auth: true
+    validate_certs: false
+    status_code: [200]
+  register: acs_policies
+  when:
+    - acs_route.resources | default([]) | length > 0
+    - acs_pw_raw.stdout | default('') | length > 0
+  failed_when: false
+
+- name: Fetch full Fixable Severity at least Important policy
+  ansible.builtin.uri:
+    url: "https://{{ acs_route.resources[0].spec.host }}/v1/policies/{{ item.id }}"
+    method: GET
+    user: admin
+    password: "{{ acs_pw_raw.stdout | b64decode }}"
+    force_basic_auth: true
+    validate_certs: false
+    status_code: [200]
+  loop: "{{ acs_policies.json.policies | default([]) | selectattr('name', 'equalto', 'Fixable Severity at least Important') | list }}"
+  register: acs_fixable_full
+  when:
+    - acs_policies.json is defined
+  failed_when: false
+
+- name: Report-only for Fixable Severity at least Important (UBI demo images)
+  ansible.builtin.uri:
+    url: "https://{{ acs_route.resources[0].spec.host }}/v1/policies/{{ item.json.id }}"
+    method: PUT
+    user: admin
+    password: "{{ acs_pw_raw.stdout | b64decode }}"
+    force_basic_auth: true
+    validate_certs: false
+    body_format: json
+    body: "{{ item.json | combine({'enforcementActions': []}) }}"
+    status_code: [200, 400]
+  loop: "{{ acs_fixable_full.results | default([]) }}"
+  when:
+    - item.json is defined
+    - item.json.id is defined
+  failed_when: false

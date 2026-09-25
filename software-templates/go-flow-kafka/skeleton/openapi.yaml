@@ -1,0 +1,18 @@
+openapi: 3.0.3
+info:
+  title: ${{values.component_id}} Trip Planner
+  version: 1.0.0
+  description: ${{values.description}}
+paths:
+  /trip/plan:
+    post:
+      summary: Start trip planning (waits for awaiting_approval)
+  /trip/approve:
+    put:
+      summary: Approve or reject a pending trip
+  /trip/plan/status:
+    get:
+      summary: Trip status by instanceId or requestId
+  /trip/plan/latest:
+    get:
+      summary: Latest trip (browser refresh)

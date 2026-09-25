@@ -1,0 +1,238 @@
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: {{ include "rhads-build.name" . }}-build
+  labels:
+    {{- include "rhads-build.labels" . | nindent 4 }}
+spec:
+  params:
+    - name: source-repo
+      type: string
+      default: {{ .Values.git.repo }}
+    - name: source-branch
+      type: string
+      default: {{ .Values.git.branch }}
+    - name: dockerfile
+      type: string
+      default: {{ .Values.image.dockerfile }}
+    - name: output-image
+      type: string
+      default: {{ include "image.dev-url" . }}
+    - name: image-tag
+      type: string
+      default: {{ .Values.image.tag }}
+    - name: gitops-repo
+      type: string
+      default: {{ .Values.git.gitopsRepo }}
+    - name: component-id
+      type: string
+      default: {{ include "rhads-build.name" . }}
+  workspaces:
+    - name: source-folder
+    - name: maven-settings
+    - name: docker-config
+  results:
+    - name: IMAGE_URL
+      value: $(tasks.openshift-build.results.IMAGE_URL)
+    - name: IMAGE_DIGEST
+      value: $(tasks.openshift-build.results.IMAGE_DIGEST)
+    - name: SCAN_OUTPUT
+      value: $(tasks.acs-scan.results.SCAN_OUTPUT)
+    - name: LINK_TO_SBOM
+      value: $(tasks.generate-sbom.results.LINK_TO_SBOM)
+  tasks:
+    - name: git-clone
+      taskRef:
+        resolver: cluster
+        params:
+          - { name: kind, value: task }
+          - { name: name, value: git-clone }
+          - { name: namespace, value: openshift-pipelines }
+      params:
+        - { name: URL, value: $(params.source-repo) }
+        - { name: REVISION, value: $(params.source-branch) }
+      workspaces:
+        - { name: output, workspace: source-folder, subPath: source }
+
+    - name: gitsign-verify
+      runAfter: [git-clone]
+      taskRef:
+        resolver: cluster
+        params:
+          - { name: kind, value: task }
+          - { name: name, value: rhads-gitsign-verify }
+          - { name: namespace, value: rhads-ci }
+      params:
+        - name: REKOR_URL
+          value: https://rekor-server-trusted-artifact-signer.{{ .Values.cluster.subdomain }}
+        - name: FULCIO_URL
+          value: https://fulcio-server-trusted-artifact-signer.{{ .Values.cluster.subdomain }}
+      workspaces:
+        - { name: source, workspace: source-folder, subPath: source }
+
+{{- if or (eq .Values.build.language "maven") (eq .Values.build.language "npm") (eq .Values.build.language "go") }}
+    - name: build-source
+      runAfter: [gitsign-verify]
+      taskRef:
+        resolver: cluster
+        params:
+          - { name: kind, value: task }
+          - { name: name, value: rhads-build-source }
+          - { name: namespace, value: rhads-ci }
+      params:
+        - { name: LANGUAGE, value: {{ .Values.build.language | quote }} }
+      workspaces:
+        - { name: source, workspace: source-folder }
+        - { name: maven-settings, workspace: maven-settings }
+{{- end }}
+
+    - name: openshift-build
+{{- if or (eq .Values.build.language "maven") (eq .Values.build.language "npm") (eq .Values.build.language "go") }}
+      runAfter: [build-source]
+{{- else }}
+      runAfter: [gitsign-verify]
+{{- end }}
+      taskRef:
+        resolver: cluster
+        params:
+          - { name: kind, value: task }
+          - { name: name, value: rhads-openshift-build }
+          - { name: namespace, value: rhads-ci }
+      params:
+        - { name: DOCKERFILE, value: $(params.dockerfile) }
+        - { name: IMAGE, value: "$(params.output-image):$(params.image-tag)" }
+        - { name: COMPONENT, value: $(params.component-id) }
+      workspaces:
+        - { name: source, workspace: source-folder, subPath: source }
+        - { name: dockerconfig, workspace: docker-config }
+
+    - name: generate-sbom
+      timeout: "15m"
+      runAfter: [openshift-build]
+      taskRef:
+        resolver: cluster
+        params:
+          - { name: kind, value: task }
+          - { name: name, value: rhads-generate-sbom }
+          - { name: namespace, value: rhads-ci }
+      params:
+        - { name: IMAGE, value: "$(params.output-image):$(params.image-tag)" }
+        - { name: SOURCE_NAME, value: $(params.component-id) }
+        - { name: SOURCE_VERSION, value: $(params.image-tag) }
+        - { name: TPA_URL, value: "https://server.{{ .Values.cluster.subdomain }}/" }
+      workspaces:
+        - { name: source, workspace: source-folder, subPath: source }
+        - { name: dockerconfig, workspace: docker-config }
+
+    - name: sign-image
+      runAfter: [generate-sbom]
+      taskRef:
+        resolver: cluster
+        params:
+          - { name: kind, value: task }
+          - { name: name, value: rhads-sign-image }
+          - { name: namespace, value: rhads-ci }
+      params:
+        - { name: IMAGE, value: "$(params.output-image)@$(tasks.openshift-build.results.IMAGE_DIGEST)" }
+        - { name: FULCIO_URL, value: https://fulcio-server-trusted-artifact-signer.{{ .Values.cluster.subdomain }} }
+        - { name: REKOR_URL, value: https://rekor-server-trusted-artifact-signer.{{ .Values.cluster.subdomain }} }
+      workspaces:
+        - { name: dockerconfig, workspace: docker-config }
+
+    - name: attest-sbom
+      runAfter: [sign-image]
+      taskRef:
+        resolver: cluster
+        params:
+          - { name: kind, value: task }
+          - { name: name, value: rhads-attest-sbom }
+          - { name: namespace, value: rhads-ci }
+      params:
+        - { name: IMAGE, value: "$(params.output-image)@$(tasks.openshift-build.results.IMAGE_DIGEST)" }
+        - { name: REKOR_URL, value: https://rekor-server-trusted-artifact-signer.{{ .Values.cluster.subdomain }} }
+      workspaces:
+        - { name: source, workspace: source-folder, subPath: source }
+        - { name: dockerconfig, workspace: docker-config }
+
+    - name: acs-scan
+      timeout: "20m"
+      runAfter: [openshift-build]
+      taskRef:
+        resolver: cluster
+        params:
+          - { name: kind, value: task }
+          - { name: name, value: rhads-acs-image-scan }
+          - { name: namespace, value: rhads-ci }
+      params:
+        - { name: IMAGE, value: "$(params.output-image):$(params.image-tag)" }
+
+    - name: acs-check
+      runAfter: [acs-scan]
+      taskRef:
+        resolver: cluster
+        params:
+          - { name: kind, value: task }
+          - { name: name, value: rhads-acs-image-check }
+          - { name: namespace, value: rhads-ci }
+      params:
+        - { name: IMAGE, value: "$(params.output-image):$(params.image-tag)" }
+
+    - name: upload-tpa
+      runAfter: [attest-sbom]
+      taskRef:
+        resolver: cluster
+        params:
+          - { name: kind, value: task }
+          - { name: name, value: rhads-upload-tpa }
+          - { name: namespace, value: rhads-ci }
+      params:
+        - { name: TPA_URL, value: https://server.{{ .Values.cluster.subdomain }} }
+        - { name: TPA_TOKEN_URL, value: https://sso.{{ .Values.cluster.subdomain }}/realms/trustify/protocol/openid-connect/token }
+      workspaces:
+        - { name: source, workspace: source-folder, subPath: source }
+
+    - name: conforma-dev
+      timeout: "15m"
+      runAfter: [sign-image, acs-check]
+      taskRef:
+        resolver: cluster
+        params:
+          - { name: kind, value: task }
+          - { name: name, value: rhads-conforma-verify }
+          - { name: namespace, value: rhads-ci }
+      params:
+        - { name: IMAGE, value: "$(params.output-image):$(params.image-tag)" }
+        - { name: REKOR_URL, value: https://rekor-server-trusted-artifact-signer.{{ .Values.cluster.subdomain }} }
+        - { name: FULCIO_URL, value: https://fulcio-server-trusted-artifact-signer.{{ .Values.cluster.subdomain }} }
+        - { name: SOURCE_REPO, value: $(params.source-repo) }
+        - { name: GIT_REVISION, value: $(params.image-tag) }
+        - { name: STRICT, value: "false" }
+        - { name: ENVIRONMENT, value: "dev" }
+
+    - name: update-gitops-dev
+      runAfter: [conforma-dev]
+      taskRef:
+        resolver: cluster
+        params:
+          - { name: kind, value: task }
+          - { name: name, value: rhads-update-gitops }
+          - { name: namespace, value: rhads-ci }
+      params:
+        - { name: GITOPS_REPO, value: $(params.gitops-repo) }
+        - { name: IMAGE, value: "$(params.output-image):$(params.image-tag)" }
+        - { name: IMAGE_TAG, value: $(params.image-tag) }
+        - { name: OVERLAY, value: dev }
+        - { name: COMPONENT, value: $(params.component-id) }
+        - { name: RUNTIME, value: {{ .Values.appRuntime | default "" | quote }} }
+      workspaces:
+        - { name: source, workspace: source-folder, subPath: source }
+  finally:
+    - name: chains-status
+      taskRef:
+        resolver: cluster
+        params:
+          - { name: kind, value: task }
+          - { name: name, value: rhads-chains-status }
+          - { name: namespace, value: rhads-ci }
+      params:
+        - { name: PIPELINE_RUN, value: $(context.pipelineRun.name) }

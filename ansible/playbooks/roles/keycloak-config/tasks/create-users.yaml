@@ -1,0 +1,63 @@
+---
+- name: Create users
+  ansible.builtin.uri:
+    url: "https://{{ keycloak_hostname }}/admin/realms/{{ keycloak_realm }}/users"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ kc_token }}"
+      Content-Type: application/json
+    body:
+      username: "{{ item.username }}"
+      enabled: true
+      email: "{{ item.email }}"
+      emailVerified: true
+      firstName: "{{ item.first_name }}"
+      lastName: "{{ item.last_name }}"
+      credentials:
+        - type: password
+          value: "{{ item.password }}"
+          temporary: false
+    body_format: json
+    status_code: [201, 409]
+    validate_certs: false
+  loop: "{{ user_list }}"
+
+- name: Lookup created users
+  ansible.builtin.uri:
+    url: "https://{{ keycloak_hostname }}/admin/realms/{{ keycloak_realm }}/users?username={{ item.username }}"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ kc_token }}"
+    return_content: true
+    validate_certs: false
+    status_code: 200
+  register: user_lookup_result
+  loop: "{{ user_list }}"
+  retries: 5
+  delay: 3
+  until: user_lookup_result.status == 200
+
+- name: List groups
+  ansible.builtin.uri:
+    url: "https://{{ keycloak_hostname }}/admin/realms/{{ keycloak_realm }}/groups"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ kc_token }}"
+    return_content: true
+    validate_certs: false
+    status_code: 200
+  register: groups_result
+
+- name: Set group id
+  ansible.builtin.set_fact:
+    current_group_id: "{{ (groups_result.json | selectattr('name', 'equalto', group_name) | list)[0].id }}"
+
+- name: Add users to group
+  ansible.builtin.uri:
+    url: "https://{{ keycloak_hostname }}/admin/realms/{{ keycloak_realm }}/users/{{ item.1.json[0].id }}/groups/{{ current_group_id }}"
+    method: PUT
+    headers:
+      Authorization: "Bearer {{ kc_token }}"
+    status_code: [204, 409]
+    validate_certs: false
+  loop: "{{ user_list | zip(user_lookup_result.results) | list }}"

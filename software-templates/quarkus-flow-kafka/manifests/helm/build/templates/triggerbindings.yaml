@@ -1,0 +1,39 @@
+apiVersion: triggers.tekton.dev/v1beta1
+kind: TriggerBinding
+metadata:
+  name: {{ include "rhads-build.name" . }}-commit
+spec:
+  params:
+    - name: git-repo-url
+      value: $(body.repository.git_http_url)
+    - name: git-revision
+      value: $(body.after)
+    - name: image-tag
+      value: $(body.after)
+---
+apiVersion: triggers.tekton.dev/v1beta1
+kind: TriggerBinding
+metadata:
+  name: {{ include "rhads-build.name" . }}-tag
+spec:
+  params:
+    - name: git-repo-url
+      value: $(body.repository.git_http_url)
+    # Image tags are commit SHAs from the build pipeline, not the Git tag name.
+    - name: image-tag
+      value: $(body.checkout_sha)
+    - name: git-ref
+      value: $(body.ref)
+---
+apiVersion: triggers.tekton.dev/v1beta1
+kind: TriggerBinding
+metadata:
+  name: {{ include "rhads-build.name" . }}-release
+spec:
+  params:
+    - name: git-repo-url
+      value: $(body.project.git_http_url)
+    - name: image-tag
+      value: $(body.commit.id)
+    - name: git-ref
+      value: $(body.tag)

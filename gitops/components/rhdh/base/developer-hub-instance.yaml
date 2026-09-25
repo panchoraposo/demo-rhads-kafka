@@ -1,0 +1,102 @@
+apiVersion: rhdh.redhat.com/v1alpha5
+kind: Backstage
+metadata:
+  name: developer-hub
+  namespace: backstage
+  annotations:
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  application:
+    extraEnvs:
+      secrets:
+        - name: backstage-env
+    extraFiles:
+      mountPath: /opt/app-root/src
+      configMaps:
+        - name: rbac-policies
+        - name: catalog-static
+        - name: topology-camel-icon
+    dynamicPluginsConfigMapName: dynamic-plugins-rhdh
+    appConfig:
+      mountPath: /opt/app-root/src
+      configMaps:
+        - name: developer-hub-config
+    route:
+      enabled: true
+      host: rhdh.CLUSTER_SUBDOMAIN_PLACEHOLDER
+  database:
+    enableLocalDb: true
+  # Hub caches Issuer.discover at process start. After a cluster stop/start,
+  # Keycloak is often still 503 then; OIDC stays 500 until the Hub pod restarts.
+  # Block the backend until SSO discovery works so the cache is populated healthy.
+  deployment:
+    patch:
+      spec:
+        template:
+          spec:
+            containers:
+              - name: backstage-backend
+                lifecycle:
+                  postStart:
+                    exec:
+                      command:
+                        - /bin/bash
+                        - -c
+                        - python3 /opt/app-root/src/inject-camel-topology-icon.py || true
+            initContainers:
+              - name: wait-for-sso
+                image: registry.redhat.io/openshift4/ose-cli:latest
+                command: ["/bin/bash", "-c"]
+                args:
+                  - |
+                    set -euo pipefail
+                    # Workshop RHBK serves TLS on 8443 (httpEnabled=false).
+                    # RHADS-managed Keycloak serves HTTP on 8080.
+                    DISCOVERY="/realms/backstage/.well-known/openid-configuration"
+                    try_kc() {
+                      local url="$1"
+                      if curl -skf --max-time 5 "${url}" -o /tmp/oidc.json && grep -q '"issuer"' /tmp/oidc.json; then
+                        echo "Keycloak discovery OK at ${url}"
+                        return 0
+                      fi
+                      return 1
+                    }
+                    echo "Waiting for in-cluster Keycloak (${DISCOVERY})"
+                    i=0
+                    while [ "$i" -lt 180 ]; do
+                      if try_kc "https://keycloak-service.keycloak.svc:8443${DISCOVERY}" \
+                        || try_kc "https://keycloak.keycloak.svc:8443${DISCOVERY}" \
+                        || try_kc "http://keycloak-service.keycloak.svc:8080${DISCOVERY}" \
+                        || try_kc "http://keycloak.keycloak.svc:8080${DISCOVERY}"; then
+                        break
+                      fi
+                      i=$((i + 1))
+                      echo "Keycloak not ready (${i}/180)"
+                      sleep 5
+                    done
+                    test -s /tmp/oidc.json
+                    HOST="$(sed -n 's/.*"issuer"[[:space:]]*:[[:space:]]*"https\?:\/\/\([^"/:]*\).*/\1/p' /tmp/oidc.json | head -1)"
+                    if [ -z "${HOST}" ]; then
+                      echo "WARN: could not parse issuer host; continuing"
+                      exit 0
+                    fi
+                    PUB="https://${HOST}/realms/backstage/.well-known/openid-configuration"
+                    echo "Waiting for public SSO at ${PUB}"
+                    i=0
+                    while [ "$i" -lt 180 ]; do
+                      if curl -skf --max-time 8 "${PUB}" | grep -q '"issuer"'; then
+                        echo "Public SSO discovery is ready"
+                        exit 0
+                      fi
+                      i=$((i + 1))
+                      echo "Public SSO not ready (${i}/180)"
+                      sleep 5
+                    done
+                    echo "FAIL: public SSO never became ready"
+                    exit 1
+                resources:
+                  requests:
+                    cpu: 50m
+                    memory: 128Mi
+                  limits:
+                    memory: 256Mi

@@ -1,0 +1,119 @@
+---
+- name: Detect current oc context
+  ansible.builtin.command:
+    cmd: oc config current-context
+  register: oc_current_ctx
+  changed_when: false
+  when: oc_context | default('') | length == 0
+
+- name: Use current oc context
+  ansible.builtin.set_fact:
+    oc_context: "{{ oc_current_ctx.stdout }}"
+  when: oc_context | default('') | length == 0
+
+- name: Get OpenShift Infrastructure config
+  kubernetes.core.k8s_info:
+    api_version: config.openshift.io/v1
+    kind: Infrastructure
+    name: cluster
+  register: infra_config
+
+- name: Get OpenShift DNS config
+  kubernetes.core.k8s_info:
+    api_version: config.openshift.io/v1
+    kind: DNS
+    name: cluster
+  register: dns_config
+
+- name: Set dynamic cluster variables
+  ansible.builtin.set_fact:
+    openshift_api_domain: "{{ infra_config.resources[0].status.apiServerURL }}"
+    openshift_base_domain: "apps.{{ dns_config.resources[0].spec.baseDomain }}"
+    cluster_base_domain: "{{ dns_config.resources[0].spec.baseDomain }}"
+    # Short hostnames (component.apps.<baseDomain>) instead of
+    # <route>-<namespace>.apps.<baseDomain> (e.g. quay-quay-quay.apps...).
+    gitlab_host: "gitlab.apps.{{ dns_config.resources[0].spec.baseDomain }}"
+    gitlab_hostname: "gitlab.apps.{{ dns_config.resources[0].spec.baseDomain }}"
+    keycloak_hostname: "sso.apps.{{ dns_config.resources[0].spec.baseDomain }}"
+    keycloak_issuer_url: "https://sso.apps.{{ dns_config.resources[0].spec.baseDomain }}/realms/{{ keycloak_realm }}"
+    keycloak_authorization_endpoint: "https://sso.apps.{{ dns_config.resources[0].spec.baseDomain }}/realms/{{ keycloak_realm }}/protocol/openid-connect/auth"
+    keycloak_token_endpoint: "https://sso.apps.{{ dns_config.resources[0].spec.baseDomain }}/realms/{{ keycloak_realm }}/protocol/openid-connect/token"
+    keycloak_userinfo_endpoint: "https://sso.apps.{{ dns_config.resources[0].spec.baseDomain }}/realms/{{ keycloak_realm }}/protocol/openid-connect/userinfo"
+    keycloak_jwks_uri: "https://sso.apps.{{ dns_config.resources[0].spec.baseDomain }}/realms/{{ keycloak_realm }}/protocol/openid-connect/certs"
+    gitlab_base_url: "https://gitlab.apps.{{ dns_config.resources[0].spec.baseDomain }}"
+    quay_host: "quay.apps.{{ dns_config.resources[0].spec.baseDomain }}"
+    rhdh_host: "rhdh.apps.{{ dns_config.resources[0].spec.baseDomain }}"
+    argocd_host: "argocd.apps.{{ dns_config.resources[0].spec.baseDomain }}"
+    acs_host: "acs.apps.{{ dns_config.resources[0].spec.baseDomain }}"
+    nexus_host: "nexus.apps.{{ dns_config.resources[0].spec.baseDomain }}"
+    vault_host: "vault.apps.{{ dns_config.resources[0].spec.baseDomain }}"
+    tpa_app_domain: ".apps.{{ dns_config.resources[0].spec.baseDomain }}"
+    repo_root: "{{ playbook_dir }}/../.."
+
+- name: Probe cluster default SSO realm (OpenShift console)
+  ansible.builtin.uri:
+    url: "https://{{ keycloak_hostname }}/realms/sso/.well-known/openid-configuration"
+    method: GET
+    status_code: [200, 401, 403, 404, 502, 503]
+    validate_certs: false
+    timeout: 15
+  register: cluster_sso_probe
+  failed_when: false
+
+- name: Detect existing Keycloak CRs in the keycloak namespace
+  ansible.builtin.command:
+    cmd: oc --context {{ oc_context }} -n keycloak get keycloak -o name
+  register: existing_keycloak_crs
+  changed_when: false
+  failed_when: false
+
+- name: Reuse cluster Keycloak when realm sso (or a Keycloak CR) already exists
+  ansible.builtin.set_fact:
+    rhads_manage_keycloak: false
+    cluster_sso_realm_present: "{{ cluster_sso_probe.status | default(0) == 200 }}"
+  when: >
+    (cluster_sso_probe.status | default(0) == 200) or
+    (existing_keycloak_crs.rc | default(1) == 0 and existing_keycloak_crs.stdout | default('') | length > 0)
+
+- name: Deploy RHADS Keycloak when the cluster has no SSO instance
+  ansible.builtin.set_fact:
+    rhads_manage_keycloak: true
+    cluster_sso_realm_present: false
+  when: rhads_manage_keycloak is not defined
+
+- name: Detect existing ODF operator
+  ansible.builtin.command:
+    cmd: oc --context {{ oc_context }} -n openshift-storage get subscription odf-operator -o name
+  register: existing_odf_sub
+  changed_when: false
+  failed_when: false
+
+- name: Detect existing StorageCluster
+  ansible.builtin.command:
+    cmd: oc --context {{ oc_context }} -n openshift-storage get storagecluster -o name
+  register: existing_storagecluster
+  changed_when: false
+  failed_when: false
+
+- name: Reuse cluster ODF when it is already installed
+  ansible.builtin.set_fact:
+    rhads_manage_odf: false
+    rhads_manage_odf_storagecluster: "{{ not (existing_storagecluster.rc | default(1) == 0 and existing_storagecluster.stdout | default('') | length > 0) }}"
+  when: existing_odf_sub.rc | default(1) == 0 and existing_odf_sub.stdout | default('') | length > 0
+
+- name: Install ODF when the cluster has none
+  ansible.builtin.set_fact:
+    rhads_manage_odf: true
+    rhads_manage_odf_storagecluster: true
+  when: rhads_manage_odf is not defined
+
+- name: Show discovered cluster
+  ansible.builtin.debug:
+    msg:
+      - "oc context {{ oc_context }}"
+      - "API {{ openshift_api_domain }}"
+      - "Apps domain {{ openshift_base_domain }}"
+      - "GitLab https://{{ gitlab_host }}"
+      - "Keycloak https://{{ keycloak_hostname }}"
+      - "Manage Keycloak {{ rhads_manage_keycloak }} (cluster SSO realm present {{ cluster_sso_realm_present }})"
+      - "Manage ODF {{ rhads_manage_odf }} (manage StorageCluster {{ rhads_manage_odf_storagecluster }})"

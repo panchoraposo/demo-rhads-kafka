@@ -1,0 +1,43 @@
+---
+- name: Create groups
+  ansible.builtin.uri:
+    url: "https://{{ gitlab_host }}/api/v4/groups"
+    method: POST
+    headers:
+      PRIVATE-TOKEN: "{{ gitlab_pat }}"
+    body_format: json
+    body:
+      name: "{{ item.name }}"
+      path: "{{ item.path | default(item.name | lower | replace(' ', '-')) }}"
+      visibility: public
+    status_code: [201, 409, 400, 502, 503]
+    validate_certs: "{{ validate_ssl_certs }}"
+  loop: "{{ additional_groups }}"
+  register: create_group_result
+  until: create_group_result.status in [201, 409] or (create_group_result.status == 400)
+  retries: 10
+  delay: 10
+
+- name: Create users
+  ansible.builtin.uri:
+    url: "https://{{ gitlab_host }}/api/v4/users"
+    method: POST
+    headers:
+      PRIVATE-TOKEN: "{{ gitlab_pat }}"
+    body_format: json
+    body:
+      email: "{{ user_item.username }}@{{ gitlab_email_domain }}"
+      name: "{{ user_item.fullName }}"
+      username: "{{ user_item.username }}"
+      password: "{{ gitlab_users_password }}"
+      skip_confirmation: true
+      reset_password: false
+    status_code: [201, 409, 502, 503]
+    validate_certs: "{{ validate_ssl_certs }}"
+  loop: "{{ additional_groups | map(attribute='users') | flatten }}"
+  loop_control:
+    loop_var: user_item
+  register: create_user_result
+  until: create_user_result.status in [201, 409]
+  retries: 10
+  delay: 10

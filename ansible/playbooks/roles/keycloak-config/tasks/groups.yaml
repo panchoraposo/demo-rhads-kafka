@@ -1,0 +1,16 @@
+---
+- name: Ensure realm groups
+  ansible.builtin.uri:
+    url: "https://{{ keycloak_hostname }}/admin/realms/{{ keycloak_realm }}/groups"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ kc_token }}"
+      Content-Type: application/json
+    body:
+      name: "{{ item }}"
+    body_format: json
+    status_code: [201, 409]
+    validate_certs: false
+  loop:
+    - developers
+    - platform-engineers

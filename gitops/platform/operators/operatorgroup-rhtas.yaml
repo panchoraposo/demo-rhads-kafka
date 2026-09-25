@@ -1,0 +1,8 @@
+apiVersion: operators.coreos.com/v1
+kind: OperatorGroup
+metadata:
+  name: rhtas-operator-group
+  namespace: trusted-artifact-signer
+spec:
+  targetNamespaces:
+    - trusted-artifact-signer

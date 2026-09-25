@@ -1,0 +1,30 @@
+nameOverride: ""
+
+owner: developers
+
+git:
+  host: ""
+  repo: ""
+  branch: main
+  gitopsRepo: ""
+
+image:
+  dockerfile: Dockerfile
+  registry: Quay
+  organization: rhads
+  host: ""
+  name: app
+  namespace: ""
+  tag: latest
+  password: ""
+
+cluster:
+  subdomain: ""
+
+build:
+  language: maven   # maven | npm | none
+  cacheSize: 16Gi
+
+appRuntime: quarkus
+
+maas: {}

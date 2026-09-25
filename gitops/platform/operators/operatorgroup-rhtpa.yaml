@@ -1,0 +1,8 @@
+apiVersion: operators.coreos.com/v1
+kind: OperatorGroup
+metadata:
+  name: rhtpa-operator-group
+  namespace: trusted-profile-analyzer
+spec:
+  targetNamespaces:
+    - trusted-profile-analyzer

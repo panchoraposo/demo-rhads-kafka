@@ -1,0 +1,27 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vscode-editor-configurations
+  namespace: openshift-devspaces
+  labels:
+    app.kubernetes.io/component: workspaces-config
+    app.kubernetes.io/part-of: che.eclipse.org
+data:
+  # Only RHDA globally. Language tooling (Java, Kaoto, ESLint, …) lives in each template.
+  extensions.json: |
+    {
+      "recommendations": [
+        "redhat.fabric8-analytics"
+      ]
+    }
+  settings.json: |
+    {
+      "redhat.telemetry.enabled": false,
+      "extensions.autoUpdate": false,
+      "extensions.autoCheckUpdates": false,
+      "redHatDependencyAnalytics.mvn.preferWrapper": "true",
+      "redHatDependencyAnalytics.matchManifestVersions": false,
+      "redHatDependencyAnalytics.backendUrl": "http://rhda-backend.trusted-profile-analyzer.svc:8080",
+      "maven.executable.preferMavenWrapper": true,
+      "java.jdt.ls.vmargs": "-XX:+UseParallelGC -Dsun.zip.disableMemoryMapping=true -Xms512m -Xmx2G"
+    }

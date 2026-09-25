@@ -1,0 +1,14 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: rhads-ci
+resources:
+  - pvc.yaml
+  - job.yaml
+configMapGenerator:
+  - name: rhads-maven-warm-poms
+    files:
+      - quarkus-flow-kafka.xml=poms/quarkus-flow-kafka.xml
+generatorOptions:
+  disableNameSuffixHash: true
+  annotations:
+    argocd.argoproj.io/sync-options: Replace=true

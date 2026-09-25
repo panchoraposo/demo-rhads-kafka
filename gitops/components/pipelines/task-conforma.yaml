@@ -1,0 +1,406 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: rhads-conforma-verify
+  namespace: rhads-ci
+  labels:
+    app.kubernetes.io/part-of: rhads-demo
+  annotations:
+    task.results.format: application/json
+    task.results.type: ec
+    task.output.location: logs
+    task.results.container: step-report-json
+spec:
+  params:
+    - name: IMAGE
+      type: string
+    - name: POLICY
+      type: string
+      default: rhads-slsa
+    - name: PUBLIC_KEY
+      type: string
+      default: /var/run/cosign/cosign.pub
+    - name: REKOR_URL
+      type: string
+    - name: TUF_URL
+      type: string
+      default: ""
+    - name: FULCIO_URL
+      type: string
+      default: ""
+    - name: SOURCE_REPO
+      type: string
+      default: ""
+    - name: GIT_REVISION
+      type: string
+      default: ""
+    - name: STRICT
+      type: string
+      default: "false"
+    - name: ENVIRONMENT
+      type: string
+      default: dev
+  steps:
+    - name: fetch-policy
+      image: registry.redhat.io/openshift4/ose-cli:latest
+      env:
+        - name: HOME
+          value: /tmp
+        - name: SOURCE_REPO
+          value: $(params.SOURCE_REPO)
+        - name: GIT_REVISION
+          value: $(params.GIT_REVISION)
+        - name: PIPELINE_RUN
+          value: $(context.pipelineRun.name)
+      script: |
+        #!/usr/bin/env bash
+        set -euo pipefail
+        mkdir -p /policy/rhads /reports /tmp/rhads-conforma-policy
+        # Cluster Tasks mount ConfigMaps from the TaskRun namespace. App copies
+        # go stale; always read the platform CM from rhads-ci.
+        oc extract configmap/rhads-conforma-policy -n rhads-ci \
+          --to=/tmp/rhads-conforma-policy --confirm >/dev/null
+        cp /tmp/rhads-conforma-policy/policy.yaml /policy/policy.yaml
+        cp /tmp/rhads-conforma-policy/git_commit_signed.rego /policy/rhads/git_commit_signed.rego
+        test -s /policy/policy.yaml
+        test -s /policy/rhads/git_commit_signed.rego
+        echo "Loaded rhads-ci/rhads-conforma-policy ($(wc -l < /policy/policy.yaml) lines, $(wc -l < /policy/rhads/git_commit_signed.rego) rego)"
+        repo="${SOURCE_REPO}"
+        rev="${GIT_REVISION}"
+        if [ -z "${repo}" ] || [ -z "${rev}" ]; then
+          if [ -n "${PIPELINE_RUN}" ]; then
+            echo "SOURCE_REPO/GIT_REVISION unset; reading PipelineRun ${PIPELINE_RUN}"
+            params="$(oc get pipelinerun "${PIPELINE_RUN}" -o go-template='{{range .spec.params}}{{.name}}={{.value}}{{"\n"}}{{end}}' 2>/dev/null || true)"
+            if [ -z "${repo}" ]; then
+              repo="$(printf '%s\n' "${params}" | awk -F= '$1=="source-repo"{print substr($0,index($0,"=")+1)}' | tail -1)"
+            fi
+            if [ -z "${rev}" ]; then
+              rev="$(printf '%s\n' "${params}" | awk -F= '$1=="image-tag"{print substr($0,index($0,"=")+1)}' | tail -1)"
+            fi
+            if [ -z "${rev}" ]; then
+              rev="$(printf '%s\n' "${params}" | awk -F= '$1=="git-ref"{print substr($0,index($0,"=")+1)}' | tail -1)"
+            fi
+            if [ -z "${rev}" ]; then
+              rev="$(printf '%s\n' "${params}" | awk -F= '$1=="source-branch"{print substr($0,index($0,"=")+1)}' | tail -1)"
+            fi
+          fi
+        fi
+        printf 'SOURCE_REPO=%s\nGIT_REVISION=%s\n' "${repo}" "${rev}" > /policy/source.env
+        echo "Source for gitsign: repo='${repo}' revision='${rev}'"
+      volumeMounts:
+        - name: policy
+          mountPath: /policy
+        - name: reports
+          mountPath: /reports
+    - name: source-git
+      image: registry.redhat.io/rhtas/gitsign-rhel9@sha256:4f95c088ef66165779e4b2d5ba89cf2594dd0d837bb707350712dc13b8a27c90
+      env:
+        - name: HOME
+          value: /tmp
+        - name: REKOR_URL
+          value: $(params.REKOR_URL)
+        - name: TUF_URL
+          value: $(params.TUF_URL)
+        - name: FULCIO_URL
+          value: $(params.FULCIO_URL)
+        - name: STRICT
+          value: $(params.STRICT)
+        - name: GIT_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: gitlab-token
+              key: token
+              optional: true
+      securityContext:
+        runAsUser: 0
+      script: |
+        #!/usr/bin/env bash
+        set -euo pipefail
+        echo "============================================================"
+        echo "[SSSC] Conforma input: Sigstore git commit signature"
+        echo "Control: gitsign verify of the tagged/built commit (RHTAS Fulcio + Rekor + TUF)."
+        echo "         STRICT promotion fails the task when the commit is not gitsign-signed."
+        echo "============================================================"
+        # shellcheck disable=SC1091
+        source /policy/source.env
+        : "${SOURCE_REPO:=}"
+        : "${GIT_REVISION:=}"
+        if [ -z "${TUF_URL}" ]; then
+          TUF_URL="${REKOR_URL/rekor-server-trusted-artifact-signer/tuf-trusted-artifact-signer}"
+        fi
+        if [ -z "${FULCIO_URL}" ]; then
+          FULCIO_URL="${REKOR_URL/rekor-server-trusted-artifact-signer/fulcio-server-trusted-artifact-signer}"
+        fi
+        export GITSIGN_REKOR_URL="${REKOR_URL}"
+        export GITSIGN_FULCIO_URL="${FULCIO_URL}"
+        export GITSIGN_TUF_MIRROR="${TUF_URL}"
+        export TUF_MIRROR="${TUF_URL}"
+        export SIGSTORE_TUF_MIRROR="${TUF_URL}"
+        export PATH="/usr/local/bin:/usr/bin:/bin:${PATH}"
+        GITSIGN_BIN="/usr/local/bin/gitsign_cli_linux"
+        if [ ! -x "${GITSIGN_BIN}" ]; then
+          GITSIGN_BIN="$(command -v gitsign || true)"
+        fi
+        if ! command -v git >/dev/null 2>&1; then
+          echo "Installing git-core (RHTAS gitsign image ships gitsign_cli_linux, not git)..."
+          microdnf -y install git-core >/dev/null
+        fi
+        if ! command -v curl >/dev/null 2>&1; then
+          microdnf -y install curl >/dev/null
+        fi
+        git config --global --add safe.directory '*'
+        git config --global http.sslVerify false
+        SIGNED=false
+        NOTE="no source repo/revision on the PipelineRun"
+        if [ -z "${SOURCE_REPO}" ] || [ -z "${GIT_REVISION}" ]; then
+          echo "WARN: cannot clone source (SOURCE_REPO='${SOURCE_REPO}' GIT_REVISION='${GIT_REVISION}')"
+        else
+          AUTH_REPO="${SOURCE_REPO}"
+          if [ -n "${GIT_TOKEN:-}" ]; then
+            AUTH_REPO="$(echo "${SOURCE_REPO}" | sed "s#https://#https://oauth2:${GIT_TOKEN}@#")"
+          fi
+          echo "Clone ${SOURCE_REPO} @ ${GIT_REVISION}"
+          rm -rf /tmp/src
+          mkdir -p /tmp/src
+          set +e
+          git -C /tmp/src init -q
+          git -C /tmp/src remote add origin "${AUTH_REPO}"
+          git -C /tmp/src fetch --depth 1 origin "${GIT_REVISION}"
+          fetch_rc=$?
+          if [ "${fetch_rc}" -ne 0 ]; then
+            git -C /tmp/src fetch --depth 1 origin "+${GIT_REVISION}:refs/rhads/head"
+            fetch_rc=$?
+          fi
+          if [ "${fetch_rc}" -eq 0 ]; then
+            git -C /tmp/src checkout --detach FETCH_HEAD 2>/dev/null \
+              || git -C /tmp/src checkout --detach refs/rhads/head
+            checkout_rc=$?
+          else
+            checkout_rc=1
+          fi
+          set -e
+          if [ "${fetch_rc}" -ne 0 ] || [ "${checkout_rc}" -ne 0 ]; then
+            NOTE="git fetch/checkout failed for ${GIT_REVISION}"
+            echo "WARN: ${NOTE}"
+          else
+            cd /tmp/src
+            echo
+            echo "--- HEAD commit ---"
+            git log -1 --pretty=full
+            echo
+            echo "TUF:    ${TUF_URL}"
+            echo "Fulcio: ${FULCIO_URL}"
+            echo "Rekor:  ${REKOR_URL}"
+            ROOT_FILE="/tmp/rhtas-tuf-root.json"
+            set +e
+            curl -fsSL -k -o "${ROOT_FILE}" "${TUF_URL}/root.json"
+            tuf_rc=$?
+            if [ "${tuf_rc}" -eq 0 ] && [ -n "${GITSIGN_BIN}" ]; then
+              "${GITSIGN_BIN}" initialize --mirror "${TUF_URL}" --root "${ROOT_FILE}"
+            fi
+            echo "--- gitsign verify HEAD ---"
+            # Keyless verify needs the Dev Spaces Fulcio identity + Keycloak issuer.
+            apps_host="${FULCIO_URL#https://fulcio-server-trusted-artifact-signer.}"
+            apps_host="${apps_host#http://fulcio-server-trusted-artifact-signer.}"
+            OIDC_ISSUER="https://sso.${apps_host}/realms/backstage"
+            echo "OIDC issuer: ${OIDC_ISSUER}"
+            "${GITSIGN_BIN}" verify HEAD \
+              --certificate-identity-regexp '.*@rhads\.demo$' \
+              --certificate-oidc-issuer "${OIDC_ISSUER}"
+            verify_rc=$?
+            set -e
+            if [ "${verify_rc}" -eq 0 ]; then
+              SIGNED=true
+              NOTE="gitsign verify passed"
+              echo "PASS: commit is Sigstore-signed (Fulcio identity recorded in Rekor)."
+            else
+              NOTE="gitsign verify exited ${verify_rc}"
+              if [ "${STRICT:-false}" = "true" ]; then
+                echo "FAIL: commit is NOT gitsign-signed (${NOTE}). Promotion requires a valid gitsign signature."
+              else
+                echo "WARN: commit is NOT gitsign-signed (${NOTE}). Dev continues; staging and production promotion will require a valid signature."
+              fi
+              git log -1 --show-signature 2>/dev/null || git cat-file -p HEAD | sed -n '1,40p' || true
+            fi
+          fi
+        fi
+        printf '%s\n' "${SIGNED}" > /reports/source-signed
+        printf '%s\n' "${GIT_REVISION}" > /reports/source-revision
+        printf '%s\n' "${NOTE}" > /reports/source-note
+        # Keep /policy readable by the non-root Conforma CLI. Do not inject a
+        # second EC source for the git signature: file:/// local sources make
+        # current Conforma CLI return "no successes, warnings, or failures".
+        if [ "${STRICT:-false}" = "true" ]; then
+          echo "STRICT=true — unsigned commits are blocked by this task after ec validate."
+        else
+          echo "STRICT!=true — git commit signature is not a dev gate (enforced on staging/prod promotion)."
+        fi
+        chmod -R a+rX /policy /reports
+        # Writable copy for the conforma step (root-owned files are not overwritable).
+        cp /policy/policy.yaml /reports/ec-policy.yaml
+        chmod a+rw /reports/ec-policy.yaml
+      volumeMounts:
+        - name: policy
+          mountPath: /policy
+        - name: reports
+          mountPath: /reports
+    - name: conforma
+      image: quay.io/conforma/cli:latest
+      env:
+        - name: HOME
+          value: /tmp
+        - name: XDG_CACHE_HOME
+          value: /tmp/.cache
+        - name: IMAGE
+          value: $(params.IMAGE)
+        - name: POLICY
+          value: $(params.POLICY)
+        - name: REKOR_URL
+          value: $(params.REKOR_URL)
+        - name: TUF_URL
+          value: $(params.TUF_URL)
+        - name: STRICT
+          value: $(params.STRICT)
+        - name: ENVIRONMENT
+          value: $(params.ENVIRONMENT)
+      script: |
+        #!/usr/bin/env bash
+        set -euo pipefail
+        mkdir -p /tmp/.sigstore /tmp/.cache /tmp/.docker
+        SIGNED="$(cat /reports/source-signed 2>/dev/null || echo false)"
+        REV="$(cat /reports/source-revision 2>/dev/null || echo unknown)"
+        NOTE="$(cat /reports/source-note 2>/dev/null || echo "")"
+        echo "============================================================"
+        echo "[SSSC] Conforma / Enterprise Contract (${ENVIRONMENT})"
+        echo "Control: policy-as-code — documented @redhat + @slsa3 collections."
+        echo "         Git commit signature is gated by this task (gitsign / RHTAS)."
+        echo "Image:  ${IMAGE}"
+        echo "Rekor:  ${REKOR_URL}"
+        echo "STRICT: ${STRICT}  (true = promotion gate; false = report only on dev)"
+        echo "Note:   --ignore-rekor (Cosign v3 RekorLogs SIGSEGV workaround; Fulcio + key still verify)"
+        echo "============================================================"
+        echo
+        echo "--- rhads_source.git_commit_signed ---"
+        echo "Revision: ${REV}"
+        echo "Signed:   ${SIGNED}  (${NOTE})"
+        if [ "${SIGNED}" = "true" ]; then
+          echo "PASS: source git commit is Sigstore-signed with gitsign (RHTAS Fulcio + Rekor)."
+        elif [ "${STRICT}" = "true" ]; then
+          echo "FAIL: source git commit ${REV} is not Sigstore-signed (gitsign / RHTAS Fulcio + Rekor)."
+          echo "Unsigned scaffold commits from Developer Hub cannot be promoted."
+          echo "Sign from Dev Spaces, push, then tag/release that signed commit."
+        else
+          echo "WARN: source git commit ${REV} is not Sigstore-signed. Dev continues; staging and production promotion will require a valid gitsign signature."
+        fi
+        echo
+        if [ -z "${TUF_URL}" ]; then
+          TUF_URL="${REKOR_URL/rekor-server-trusted-artifact-signer/tuf-trusted-artifact-signer}"
+        fi
+        echo "TUF:    ${TUF_URL}"
+        export TUF_MIRROR="${TUF_URL}"
+        export SIGSTORE_TUF_MIRROR="${TUF_URL}"
+        POLICY_FILE="/reports/ec-policy.yaml"
+        if [ ! -f "${POLICY_FILE}" ] && [ -f /policy/policy.yaml ]; then
+          cp /policy/policy.yaml "${POLICY_FILE}" || true
+        fi
+        if [ ! -f "${POLICY_FILE}" ]; then
+          echo "FAIL: ConfigMap rhads-conforma-policy is not mounted"
+          exit 1
+        fi
+        # Prefer Tekton-injected Quay pull credentials when present.
+        if [ -z "${DOCKER_CONFIG:-}" ]; then
+          for d in /tekton/creds /.docker /tmp/.docker; do
+            if [ -f "${d}/config.json" ] || [ -f "${d}/.dockerconfigjson" ]; then
+              export DOCKER_CONFIG="${d}"
+              break
+            fi
+          done
+        fi
+        mkdir -p /tmp/.docker
+        if [ -n "${DOCKER_CONFIG:-}" ] && [ -f "${DOCKER_CONFIG}/.dockerconfigjson" ] && [ ! -f "${DOCKER_CONFIG}/config.json" ]; then
+          cp "${DOCKER_CONFIG}/.dockerconfigjson" /tmp/.docker/config.json
+          export DOCKER_CONFIG=/tmp/.docker
+        fi
+        echo "--- policy.yaml ---"
+        cat "${POLICY_FILE}"
+        echo
+        # Image .sig from the pipeline may still be key-based. Chains SLSA
+        # provenance is keyless (Fulcio identity of tekton-chains-controller).
+        extra=()
+        if [ -f /var/run/cosign/cosign.pub ]; then
+          extra+=(--public-key /var/run/cosign/cosign.pub)
+        fi
+        extra+=(--certificate-identity-regexp '.*tekton-chains-controller.*')
+        extra+=(--certificate-oidc-issuer 'https://kubernetes.default.svc')
+        # Cosign v3 (Conforma CLI latest) SIGSEGVs in RekorLogs() when verifying
+        # Chains sigstore bundles against this cluster's Rekor. --ignore-rekor
+        # skips TLog inclusion only; Fulcio identity + the demo public key still
+        # verify. Do not use --skip-att-sig-check: that path finds no attestations.
+        extra+=(--ignore-rekor)
+        extra+=(--info)
+        mkdir -p /reports
+        echo "--- ec validate image ---"
+        set +e
+        ec validate image \
+          --image "${IMAGE}" \
+          --rekor-url "${REKOR_URL}" \
+          --policy "${POLICY_FILE}" \
+          "${extra[@]}" \
+          --output json > /reports/ec.json
+        json_rc=$?
+        ec validate image \
+          --image "${IMAGE}" \
+          --rekor-url "${REKOR_URL}" \
+          --policy "${POLICY_FILE}" \
+          "${extra[@]}" \
+          --output text
+        rc=$?
+        set -e
+        if [ ! -s /reports/ec.json ]; then
+          echo '{}' > /reports/ec.json
+        fi
+        source_fail=0
+        if [ "${STRICT}" = "true" ] && [ "${SIGNED}" != "true" ]; then
+          source_fail=1
+        fi
+        if [ "${rc}" -eq 0 ] && [ "${json_rc}" -eq 0 ] && [ "${source_fail}" -eq 0 ]; then
+          echo
+          echo "PASS: Conforma @redhat + @slsa3 and git commit signature satisfied for ${ENVIRONMENT}."
+          exit 0
+        fi
+        echo
+        echo "Conforma reported policy failures (image exit ${rc}, source_fail=${source_fail}) on ${ENVIRONMENT}."
+        if [ "${STRICT}" = "true" ]; then
+          echo "FAIL: STRICT=true — promotion is blocked until the image and the git commit meet policy."
+          if [ "${source_fail}" -eq 1 ]; then
+            echo "FAIL: rhads_source.git_commit_signed — unsigned git commit cannot be promoted."
+          fi
+          exit 1
+        fi
+        echo "WARN: STRICT=false — continuing so the live demo can show the report before promotion."
+      volumeMounts:
+        - name: cosign-key
+          mountPath: /var/run/cosign
+          readOnly: true
+        - name: policy
+          mountPath: /policy
+        - name: reports
+          mountPath: /reports
+    - name: report-json
+      image: registry.access.redhat.com/ubi9/ubi:9.6
+      volumeMounts:
+        - name: reports
+          mountPath: /reports
+      script: |
+        #!/usr/bin/env bash
+        set -euo pipefail
+        cat /reports/ec.json
+  volumes:
+    - name: cosign-key
+      secret:
+        secretName: cosign-signing-key
+        optional: true
+    - name: policy
+      emptyDir: {}
+    - name: reports
+      emptyDir: {}

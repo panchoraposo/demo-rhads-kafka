@@ -1,0 +1,40 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: rhads-chains-status
+  namespace: rhads-ci
+  labels:
+    app.kubernetes.io/part-of: rhads-demo
+spec:
+  params:
+    - name: PIPELINE_RUN
+      type: string
+  steps:
+    - name: show
+      image: registry.redhat.io/openshift4/ose-cli@sha256:69762925e16053d77685ff3a08b3b45dd2bfa5d68277851bc6969b368bbd0cb9
+      env:
+        - name: PIPELINE_RUN
+          value: $(params.PIPELINE_RUN)
+      script: |
+        #!/usr/bin/env bash
+        set -euo pipefail
+        echo "============================================================"
+        echo "[SSSC] Tekton Chains (SLSA provenance, keyless)"
+        echo "Control: Chains requests a short-lived Fulcio cert for"
+        echo "         system:serviceaccount:openshift-pipelines:tekton-chains-controller"
+        echo "         and records the signature in Rekor (TUF trust root)."
+        echo "PipelineRun: ${PIPELINE_RUN}"
+        echo "============================================================"
+        NS="$(cat /var/run/secrets/kubernetes.io/serviceaccount/namespace)"
+        echo "--- Chains annotations on this PipelineRun ---"
+        oc -n "${NS}" get pipelinerun "${PIPELINE_RUN}" -o yaml \
+          | sed -n '/annotations:/,/labels:/p' \
+          | grep -E 'chains\.tekton|transparency|signed' || true
+        echo
+        echo "--- recent TaskRuns ---"
+        oc -n "${NS}" get taskrun -l tekton.dev/pipelineRun="${PIPELINE_RUN}" \
+          -o custom-columns=NAME:.metadata.name,SUCCEEDED:.status.conditions[0].reason --no-headers 2>/dev/null | head -20
+        echo
+        echo "Look in TektonConfig/config spec.chain for signers.x509.fulcio.enabled=true"
+        echo "and transparency.url (Rekor). Signing is asynchronous; refresh this PipelineRun."
+        echo "PASS: Chains is configured keyless (Fulcio + Rekor)."

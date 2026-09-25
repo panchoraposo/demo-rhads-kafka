@@ -1,0 +1,69 @@
+---
+- name: Create Job to generate a cosign key pair
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: batch/v1
+      kind: Job
+      metadata:
+        name: generate-cosign-key
+        namespace: rhads-ci
+      spec:
+        ttlSecondsAfterFinished: 120
+        backoffLimit: 3
+        template:
+          spec:
+            restartPolicy: OnFailure
+            serviceAccountName: default
+            containers:
+              - name: cosign
+                image: registry.redhat.io/openshift4/ose-cli:latest
+                command:
+                  - /bin/bash
+                  - -c
+                  - |
+                    set -euo pipefail
+                    curl -fsSL -o /tmp/cosign https://github.com/sigstore/cosign/releases/download/v2.4.3/cosign-linux-amd64
+                    chmod +x /tmp/cosign
+                    cd /tmp
+                    COSIGN_PASSWORD=rhads /tmp/cosign generate-key-pair
+                    oc -n rhads-ci create secret generic cosign-signing-key \
+                      --from-file=cosign.key=/tmp/cosign.key \
+                      --from-file=cosign.pub=/tmp/cosign.pub \
+                      --from-literal=cosign.password=rhads \
+                      --dry-run=client -o yaml | oc apply -f -
+  failed_when: false
+
+- name: Wait for cosign secret
+  kubernetes.core.k8s_info:
+    kind: Secret
+    name: cosign-signing-key
+    namespace: rhads-ci
+  register: cosign_secret
+  retries: 20
+  delay: 10
+  until: cosign_secret.resources | length > 0
+  failed_when: false
+
+- name: Record RHTAS route hosts
+  ansible.builtin.command:
+    cmd: oc --context {{ oc_context }} -n {{ rhtas_namespace }} get route -o jsonpath={{ '{range.items[*]}{.metadata.name}{"="}{.spec.host}{"\\n"}{end}' }}
+  register: rhtas_routes
+  failed_when: false
+  changed_when: false
+
+- name: Create rhads-pipeline-env secret
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: rhads-pipeline-env
+        namespace: rhads-ci
+      type: Opaque
+      stringData:
+        FULCIO_URL: "https://fulcio-server-trusted-artifact-signer.{{ openshift_base_domain }}"
+        REKOR_URL: "https://rekor-server-trusted-artifact-signer.{{ openshift_base_domain }}"
+        TUF_URL: "https://tuf-trusted-artifact-signer.{{ openshift_base_domain }}"
+        TSA_URL: "https://tsa-server-trusted-artifact-signer.{{ openshift_base_domain }}"

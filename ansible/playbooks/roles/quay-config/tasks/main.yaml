@@ -1,0 +1,141 @@
+---
+- name: Wait for ODF Multicloud Object Gateway (NooBaa)
+  kubernetes.core.k8s_info:
+    api_version: noobaa.io/v1alpha1
+    kind: NooBaa
+    name: noobaa
+    namespace: openshift-storage
+  register: noobaa
+  until: >
+    noobaa.resources | default([]) | length > 0 and
+    (noobaa.resources[0].status.phase | default('') | lower) in ['ready', 'connected']
+  retries: 80
+  delay: 20
+
+- name: Create Quay config bundle
+  kubernetes.core.k8s:
+    state: present
+    definition: "{{ lookup('template', 'quay-config-bundle.yaml.j2') | from_yaml }}"
+
+- name: Create QuayRegistry
+  kubernetes.core.k8s:
+    state: present
+    definition: "{{ lookup('template', 'quayregistry.yaml.j2') | from_yaml }}"
+
+- name: Wait for Quay application route
+  kubernetes.core.k8s_info:
+    api_version: route.openshift.io/v1
+    kind: Route
+    name: quay-quay
+    namespace: "{{ quay_namespace }}"
+  register: quay_app_route
+  until: quay_app_route.resources | default([]) | length > 0
+  retries: 40
+  delay: 15
+
+- name: Pin Quay route to short hostname
+  ansible.builtin.command: >
+    oc --context {{ oc_context }} -n {{ quay_namespace }} patch route quay-quay --type=merge
+    -p '{"spec":{"host":"{{ quay_host | regex_replace('^https?://', '') }}"}}'
+  changed_when: true
+
+- name: Set Quay URL
+  ansible.builtin.set_fact:
+    quay_url: "{{ quay_host | regex_replace('^https?://', '') }}"
+    quay_host: "{{ quay_host | regex_replace('^https?://', '') }}"
+
+- name: Wait for QuayRegistry Available
+  kubernetes.core.k8s_info:
+    api_version: quay.redhat.com/v1
+    kind: QuayRegistry
+    name: quay
+    namespace: "{{ quay_namespace }}"
+  register: quay_status
+  until: >
+    quay_status.resources | length > 0 and
+    quay_status.resources[0].status.conditions is defined and
+    (quay_status.resources[0].status.conditions | selectattr('type', 'equalto', 'Available') | list | length > 0) and
+    (quay_status.resources[0].status.conditions | selectattr('type', 'equalto', 'Available') | list)[0].status == 'True'
+  retries: 80
+  delay: 20
+
+- name: Initialize Quay superuser
+  ansible.builtin.uri:
+    url: "https://{{ quay_url }}/api/v1/user/initialize"
+    method: POST
+    validate_certs: false
+    follow_redirects: all
+    body_format: json
+    body:
+      username: "{{ quay_admin_user }}"
+      password: "{{ quay_admin_password }}"
+      email: "{{ quay_org_email }}"
+      access_token: true
+    status_code: [200, 201, 400, 409]
+  register: init_user_result
+  retries: 30
+  delay: 15
+
+- name: Persist Quay admin token when initialize returns one
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: quay-admin-token
+        namespace: "{{ quay_namespace }}"
+      type: Opaque
+      stringData:
+        token: "{{ init_user_result.json.access_token }}"
+  when: init_user_result.json.access_token | default('') | length > 0
+
+# The initialize access_token is one-shot. On re-install it is gone or
+# expired, and Bearer calls then look unauthenticated (Quay 403 CSRF).
+# Org/robot/team use the same CSRF cookie login as the app bootstrap Job.
+- name: Bootstrap Quay organization, robot and team
+  ansible.builtin.command:
+    argv:
+      - python3
+      - "{{ role_path }}/files/bootstrap_quay.py"
+  environment:
+    QUAY_URL: "https://{{ quay_url }}"
+    QUAY_USER: "{{ quay_admin_user }}"
+    QUAY_PASS: "{{ quay_admin_password }}"
+    QUAY_ORG: "{{ quay_org }}"
+    QUAY_ROBOT: "{{ quay_robot_name }}"
+  register: quay_bootstrap
+  changed_when: true
+
+- name: Save robot token
+  ansible.builtin.set_fact:
+    quay_robot_username: "{{ (quay_bootstrap.stdout | from_json).username }}"
+    quay_robot_token: "{{ (quay_bootstrap.stdout | from_json).token }}"
+  no_log: true
+
+- name: Create dockerconfig secret in rhads-ci
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: quay-dockerconfig
+        namespace: rhads-ci
+      type: kubernetes.io/dockerconfigjson
+      stringData:
+        .dockerconfigjson: |
+          {
+            "auths": {
+              "{{ quay_url }}": {
+                "username": "{{ quay_robot_username | default('quayadmin') }}",
+                "password": "{{ quay_robot_token | default(quay_admin_password) }}"
+              }
+            }
+          }
+  when: quay_url is defined
+
+- name: Re-publish platform repo with the live Quay hostname
+  ansible.builtin.include_role:
+    name: gitlab-config
+    tasks_from: publish-platform-repo.yaml

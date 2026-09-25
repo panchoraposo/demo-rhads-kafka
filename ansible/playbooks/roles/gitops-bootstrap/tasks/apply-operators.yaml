@@ -1,0 +1,80 @@
+---
+- name: Apply operator subscriptions from the working tree
+  ansible.builtin.command:
+    cmd: oc --context {{ oc_context }} apply -k {{ repo_root }}/gitops/platform/operators
+  register: apply_ops
+  changed_when: "'created' in apply_ops.stdout or 'configured' in apply_ops.stdout"
+
+- name: Drop ODF Multicluster Orchestrator subscription (not used by RHADS)
+  ansible.builtin.command:
+    cmd: oc --context {{ oc_context }} -n openshift-operators delete subscription odf-multicluster-orchestrator --ignore-not-found
+  failed_when: false
+  changed_when: true
+
+- name: Install RHBK when the cluster has no SSO Keycloak
+  when: rhads_manage_keycloak | default(true) | bool
+  block:
+    - name: Apply Keycloak namespace, OperatorGroup and RHBK subscription
+      ansible.builtin.command:
+        cmd: oc --context {{ oc_context }} apply -f {{ item }}
+      loop:
+        - "{{ repo_root }}/gitops/platform/operators/namespace-keycloak.yaml"
+        - "{{ repo_root }}/gitops/platform/operators/operatorgroup-keycloak.yaml"
+        - "{{ repo_root }}/gitops/platform/operators/subscription-rhbk.yaml"
+      changed_when: true
+
+- name: Install ODF operator when the cluster has none
+  when: rhads_manage_odf | default(true) | bool
+  block:
+    - name: Apply ODF OperatorGroup and odf-operator subscription
+      ansible.builtin.command:
+        cmd: oc --context {{ oc_context }} apply -f {{ item }}
+      loop:
+        - "{{ repo_root }}/gitops/platform/operators/namespace-odf.yaml"
+        - "{{ repo_root }}/gitops/platform/operators/operatorgroup-odf.yaml"
+        - "{{ repo_root }}/gitops/platform/operators/subscription-odf.yaml"
+      changed_when: true
+
+- name: Wait for operator CSVs
+  ansible.builtin.include_tasks: wait-csv.yaml
+  loop:
+    - { ns: openshift-operators, match: pipelines }
+    - { ns: openshift-operators, match: rhdh }
+    - { ns: keycloak, match: rhbk }
+    - { ns: quay, match: quay-operator }
+    - { ns: openshift-operators, match: rhtas }
+    - { ns: trusted-profile-analyzer, match: rhtpa }
+    - { ns: openshift-operators, match: rhacs }
+    - { ns: openshift-operators, match: devspaces }
+    - { ns: openshift-storage, match: odf-operator }
+    - { ns: openshift-storage, match: mcg-operator }
+    - { ns: external-secrets-operator, match: external-secrets-operator }
+    - { ns: openshift-operators, match: amqstreams }
+    - { ns: kafka-console, match: amq-streams-console }
+    - { ns: openshift-cluster-observability-operator, match: cluster-observability }
+  loop_control:
+    loop_var: csv
+
+# Copied AllNamespaces CSVs can report Succeeded in openshift-operators while the
+# real operator still lives in another namespace (e.g. a leftover backstage OG).
+- name: Drop leftover RHDH CSV in backstage if it has no OperatorGroup
+  kubernetes.core.k8s:
+    state: absent
+    api_version: operators.coreos.com/v1alpha1
+    kind: ClusterServiceVersion
+    namespace: backstage
+    label_selector: operators.coreos.com/rhdh.backstage
+  failed_when: false
+
+- name: Wait for RHDH operator Deployment in openshift-operators
+  kubernetes.core.k8s_info:
+    api_version: apps/v1
+    kind: Deployment
+    name: rhdh-operator
+    namespace: openshift-operators
+  register: rhdh_operator_deploy
+  until: >
+    rhdh_operator_deploy.resources | default([]) | length > 0 and
+    (rhdh_operator_deploy.resources[0].status.availableReplicas | default(0) | int) >= 1
+  retries: 40
+  delay: 10

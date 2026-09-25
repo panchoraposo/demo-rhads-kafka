@@ -1,0 +1,169 @@
+app:
+  title: Red Hat Developer Hub — RHADS Supply Chain
+  baseUrl: https://rhdh.${OPENSHIFT_CLUSTER_INGRESS_DOMAIN}
+
+backend:
+  baseUrl: https://rhdh.${OPENSHIFT_CLUSTER_INGRESS_DOMAIN}
+  listen:
+    port: 7007
+    host: 0.0.0.0
+  cors:
+    origin: https://rhdh.${OPENSHIFT_CLUSTER_INGRESS_DOMAIN}
+    methods: [GET, HEAD, PATCH, POST, PUT, DELETE]
+    credentials: true
+  csp:
+    connect-src: ["'self'", "http:", "https:", "data:"]
+  auth:
+    keys:
+      - secret: ${BACKEND_SECRET}
+
+# Full-page redirect instead of a popup so the OIDC session cookie is sent.
+enableExperimentalRedirectFlow: true
+
+auth:
+  environment: production
+  session:
+    secret: ${BACKEND_SECRET}
+  providers:
+    oidc:
+      production:
+        prompt: auto
+        metadataUrl: https://sso.${OPENSHIFT_CLUSTER_INGRESS_DOMAIN}/realms/backstage/.well-known/openid-configuration
+        clientId: backstage
+        clientSecret: ${OAUTH_CLIENT_SECRET}
+        callbackUrl: https://rhdh.${OPENSHIFT_CLUSTER_INGRESS_DOMAIN}/api/auth/oidc/handler/frame
+        additionalScopes:
+          - openid
+          - profile
+          - email
+        signIn:
+          resolvers:
+            - resolver: preferredUsernameMatchingUserEntityName
+              dangerouslyAllowSignInWithoutUserInCatalog: true
+
+signInPage: oidc
+
+organization:
+  name: RHADS Demo
+
+catalog:
+  rules:
+    - allow: [Component, System, API, Resource, Location, Template, Domain, Group, User]
+  locations:
+    - type: file
+      target: /opt/app-root/src/users.yaml
+      rules:
+        - allow: [User, Group]
+    - type: url
+      target: https://${GITLAB_HOST}/platform-engineers/rhads-platform/-/blob/main/catalog/all.yaml
+      rules:
+        - allow: [Template, Location, Component, System, Domain, User, Group]
+  providers:
+    keycloakOrg:
+      default:
+        baseUrl: https://sso.${OPENSHIFT_CLUSTER_INGRESS_DOMAIN}
+        loginRealm: backstage
+        realm: backstage
+        clientId: backstage
+        clientSecret: ${OAUTH_CLIENT_SECRET}
+        schedule:
+          frequency: { minutes: 2 }
+          timeout: { minutes: 1 }
+          initialDelay: { seconds: 15 }
+    gitlab:
+      gitlab:
+        host: ${GITLAB_HOST}
+        group: developers
+        orgEnabled: false
+        schedule:
+          frequency: { minutes: 5 }
+          timeout: { minutes: 3 }
+
+permission:
+  enabled: true
+  rbac:
+    admin:
+      users:
+        - name: user:default/pe1
+        - name: user:default/pe2
+        - name: user:default/pe3
+    conditionalPoliciesFile: /opt/app-root/src/rbac-conditional-policies.yaml
+    policies-csv-file: /opt/app-root/src/rbac-policy.csv
+    policyFileReload: true
+
+scaffolder:
+  defaultAuthor:
+    name: Red Hat Developer Hub
+    email: rhdh@rhads.demo
+
+integrations:
+  gitlab:
+    - host: ${GITLAB_HOST}
+      apiBaseUrl: https://${GITLAB_HOST}/api/v4
+      baseUrl: https://${GITLAB_HOST}
+      token: ${GITLAB_TOKEN}
+
+argocd:
+  appLocatorMethods:
+    - type: config
+      instances:
+        - name: main
+          url: https://argocd.${OPENSHIFT_CLUSTER_INGRESS_DOMAIN}
+          username: admin
+          password: ${ARGOCD_PASSWORD}
+
+kubernetes:
+  serviceLocatorMethod:
+    type: multiTenant
+  # Required for the Tekton CI tab: without these the Hub never lists PipelineRuns.
+  customResources:
+    - group: tekton.dev
+      apiVersion: v1
+      plural: pipelines
+    - group: tekton.dev
+      apiVersion: v1
+      plural: pipelineruns
+    - group: tekton.dev
+      apiVersion: v1
+      plural: taskruns
+    - group: route.openshift.io
+      apiVersion: v1
+      plural: routes
+  clusterLocatorMethods:
+    - type: config
+      clusters:
+        - url: https://kubernetes.default.svc
+          name: demo-cluster
+          authProvider: serviceAccount
+          skipTLSVerify: true
+          serviceAccountToken: ${KUBERNETES_SA_TOKEN}
+          customResources:
+            - group: tekton.dev
+              apiVersion: v1
+              plural: pipelines
+            - group: tekton.dev
+              apiVersion: v1
+              plural: pipelineruns
+            - group: tekton.dev
+              apiVersion: v1
+              plural: taskruns
+            - group: route.openshift.io
+              apiVersion: v1
+              plural: routes
+
+quay:
+  uiUrl: ${QUAY_UI_URL}
+
+techdocs:
+  builder: local
+  generator:
+    runIn: local
+  publisher:
+    type: local
+
+enabled:
+  kubernetes: true
+  tekton: true
+  argocd: true
+  quay: true
+  gitlab: true

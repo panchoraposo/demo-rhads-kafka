@@ -1,0 +1,27 @@
+---
+- name: Create PAT for root
+  include_tasks: create-pat.yaml
+
+- name: Allow GitLab webhooks to reach cluster-local services
+  include_tasks: enable-local-webhooks.yaml
+
+- name: Create GitLab admin user
+  include_tasks: user-admin.yaml
+
+- name: Create groups and users
+  include_tasks: create-groups-users.yaml
+
+- name: Add users to groups
+  include_tasks: add-users-to-groups.yaml
+
+- name: Publish this repository to GitLab
+  include_tasks: publish-platform-repo.yaml
+
+- name: Configure Dev Spaces GitLab OAuth
+  include_tasks: configure-devspaces.yaml
+
+- name: Disable Auto DevOps and register the docs runner
+  include_tasks: ci-runner.yaml
+
+- name: Render software-template hostnames and push
+  include_tasks: render-templates.yaml

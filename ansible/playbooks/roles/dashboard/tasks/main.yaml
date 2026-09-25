@@ -1,0 +1,171 @@
+---
+- name: Collect Keycloak admin password
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: Secret
+    namespace: keycloak
+    name: keycloak-initial-admin
+  register: kc_secret_res
+
+- name: Collect Argo CD password
+  ansible.builtin.command:
+    cmd: oc --context {{ oc_context }} -n {{ gitops_namespace }} extract secret/openshift-gitops-cluster --to=- --keys=admin.password
+  register: argocd_pass_cmd
+  changed_when: false
+  failed_when: false
+
+- name: Collect Argo CD route
+  kubernetes.core.k8s_info:
+    api_version: route.openshift.io/v1
+    kind: Route
+    name: openshift-gitops-server
+    namespace: "{{ gitops_namespace }}"
+  register: argocd_route_res
+
+- name: Collect Vault route
+  kubernetes.core.k8s_info:
+    api_version: route.openshift.io/v1
+    kind: Route
+    name: vault
+    namespace: vault
+  register: vault_route_res
+  failed_when: false
+
+- name: Collect ACS route
+  kubernetes.core.k8s_info:
+    api_version: route.openshift.io/v1
+    kind: Route
+    name: central
+    namespace: stackrox
+  register: acs_route_res
+  failed_when: false
+
+- name: Collect ACS admin password
+  ansible.builtin.command:
+    cmd: oc --context {{ oc_context }} -n {{ acs_namespace }} extract secret/central-htpasswd --to=- --keys=password
+  register: acs_pass_cmd
+  changed_when: false
+  failed_when: false
+
+- name: Set dashboard facts
+  ansible.builtin.set_fact:
+    dash_argocd_url: "https://{{ argocd_host | default(argocd_route_res.resources[0].spec.host if (argocd_route_res.resources | length > 0) else ('argocd.' + openshift_base_domain)) }}"
+    dash_rhdh_url: "https://{{ rhdh_host }}/"
+    dash_gitlab_url: "https://{{ gitlab_host }}/"
+    dash_keycloak_url: "https://{{ keycloak_hostname }}/"
+    dash_quay_url: "https://{{ quay_url | default(quay_host) }}/"
+    dash_acs_url: "https://{{ acs_host | default(acs_route_res.resources[0].spec.host if (acs_route_res.resources | default([]) | length > 0) else ('acs.' + openshift_base_domain)) }}"
+    dash_tpa_url: "https://server{{ tpa_app_domain }}/"
+    dash_devspaces_url: "https://devspaces.{{ openshift_base_domain }}/"
+    dash_rekor_url: "https://rekor-search-ui-trusted-artifact-signer.{{ openshift_base_domain }}/"
+    dash_fulcio_url: "https://fulcio-server-trusted-artifact-signer.{{ openshift_base_domain }}/"
+    dash_nexus_url: "https://{{ nexus_host | default('nexus.' + openshift_base_domain) }}/"
+    dash_vault_url: "https://{{ vault_host | default(vault_route_res.resources[0].spec.host if (vault_route_res.resources | default([]) | length > 0) else ('vault.' + openshift_base_domain)) }}/"
+    dash_kafka_console_url: "https://kafka-console.{{ openshift_base_domain }}/"
+    dash_kc_pass: "{{ (kc_secret_res.resources[0].data.password | b64decode) if (kc_secret_res.resources | length > 0) else '' }}"
+    dash_argocd_pass: "{{ argocd_pass_cmd.stdout | default('') }}"
+    dash_acs_pass: "{{ acs_pass_cmd.stdout | default('') }}"
+
+- name: Create dashboard namespace
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: dashboard
+
+- name: Dashboard ConfigMap
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: dashboard-html
+        namespace: dashboard
+      data:
+        index.html: "{{ lookup('template', 'demo-dashboard.html.j2') }}"
+
+- name: Dashboard deployment
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: dashboard
+        namespace: dashboard
+      spec:
+        replicas: 1
+        selector:
+          matchLabels: { app: dashboard }
+        template:
+          metadata:
+            labels: { app: dashboard }
+          spec:
+            containers:
+              - name: nginx
+                image: registry.access.redhat.com/ubi9/nginx-124:latest
+                command: ["/usr/libexec/s2i/run"]
+                ports:
+                  - containerPort: 8080
+                volumeMounts:
+                  - name: html
+                    mountPath: /opt/app-root/src
+            volumes:
+              - name: html
+                configMap:
+                  name: dashboard-html
+
+- name: Dashboard service
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Service
+      metadata:
+        name: dashboard
+        namespace: dashboard
+      spec:
+        selector: { app: dashboard }
+        ports:
+          - port: 8080
+            targetPort: 8080
+
+- name: Dashboard route
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: route.openshift.io/v1
+      kind: Route
+      metadata:
+        name: dashboard
+        namespace: dashboard
+      spec:
+        host: "dashboard.{{ openshift_base_domain }}"
+        to:
+          kind: Service
+          name: dashboard
+        port:
+          targetPort: 8080
+        tls:
+          termination: edge
+          insecureEdgeTerminationPolicy: Redirect
+
+- name: Print demo URLs
+  ansible.builtin.debug:
+    msg:
+      - "Dashboard  https://dashboard.{{ openshift_base_domain }}"
+      - "Developer Hub  {{ dash_rhdh_url }}  (dev1 / {{ common_user_password }})"
+      - "GitLab  {{ dash_gitlab_url }}  (root / {{ gitlab_root_password }})"
+      - "Keycloak  {{ dash_keycloak_url }}  (temp-admin)"
+      - "Argo CD  {{ dash_argocd_url }}"
+      - "Quay  {{ dash_quay_url }}"
+      - "ACS  {{ dash_acs_url }}"
+      - "TPA  {{ dash_tpa_url }}"
+      - "Dev Spaces  {{ dash_devspaces_url }}"
+      - "Nexus       {{ dash_nexus_url }}"
+      - "Vault       {{ dash_vault_url }}  (vaultadmin / {{ common_user_password }})"
+      - "Kafka Console  {{ dash_kafka_console_url }}"
+      - "Perses     Observe → Dashboards (Perses) → rhads-observability"

@@ -1,0 +1,97 @@
+apiVersion: perses.dev/v1alpha1
+kind: PersesDashboard
+metadata:
+  name: rhads-trip-planner-apps
+  namespace: rhads-observability
+  labels:
+    app.kubernetes.io/part-of: rhads-demo
+  annotations:
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  display:
+    name: RHADS Trip Planner — app health
+    description: HTTP and resource metrics for scaffolded Quarkus/Go trip planner apps
+  duration: 15m
+  refreshInterval: 30s
+  variables:
+    - kind: ListVariable
+      spec:
+        name: app_ns
+        allowAllValue: true
+        allowMultiple: false
+        plugin:
+          kind: PrometheusLabelValuesVariable
+          spec:
+            labelName: namespace
+            matchers:
+              - 'kube_namespace_labels{label_app_kubernetes_io_part_of="rhads-demo"}'
+  panels:
+    pod_cpu:
+      kind: Panel
+      spec:
+        display:
+          name: CPU usage (trip apps)
+        plugin:
+          kind: TimeSeriesChart
+          spec: {}
+        queries:
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  query: sum by (namespace, pod) (rate(container_cpu_usage_seconds_total{namespace=~".*-dev|.*-staging|.*-prod",container!="",container!="POD"}[5m]))
+    pod_mem:
+      kind: Panel
+      spec:
+        display:
+          name: Memory working set
+        plugin:
+          kind: TimeSeriesChart
+          spec: {}
+        queries:
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  query: sum by (namespace, pod) (container_memory_working_set_bytes{namespace=~".*-dev|.*-staging|.*-prod",container!="",container!="POD"})
+    http_requests:
+      kind: Panel
+      spec:
+        display:
+          name: HTTP request rate (Micrometer / Go)
+        plugin:
+          kind: TimeSeriesChart
+          spec: {}
+        queries:
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  query: sum by (namespace) (rate(http_server_requests_seconds_count[5m])) or sum by (namespace) (rate(http_requests_total[5m]))
+  layouts:
+    - kind: Grid
+      spec:
+        display:
+          title: Applications
+        items:
+          - x: 0
+            y: 0
+            width: 12
+            height: 8
+            content:
+              $ref: "#/spec/panels/pod_cpu"
+          - x: 12
+            y: 0
+            width: 12
+            height: 8
+            content:
+              $ref: "#/spec/panels/pod_mem"
+          - x: 0
+            y: 8
+            width: 24
+            height: 8
+            content:
+              $ref: "#/spec/panels/http_requests"

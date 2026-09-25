@@ -1,0 +1,54 @@
+---
+- name: Lookup group {{ current_group_data.name }}
+  ansible.builtin.uri:
+    url: "https://{{ gitlab_host }}/api/v4/groups?search={{ current_group_data.name }}"
+    method: GET
+    headers:
+      PRIVATE-TOKEN: "{{ gitlab_pat }}"
+    status_code: [200, 503]
+    validate_certs: false
+  register: group_query_result
+  until: group_query_result.status == 200 and group_query_result.json | length > 0
+  retries: 10
+  delay: 10
+
+- name: Set group id
+  ansible.builtin.set_fact:
+    current_group_id: "{{ group_query_result.json[0].id }}"
+
+- name: Lookup users
+  ansible.builtin.uri:
+    url: "https://{{ gitlab_host }}/api/v4/users?username={{ user_to_find.username }}"
+    method: GET
+    headers:
+      PRIVATE-TOKEN: "{{ gitlab_pat }}"
+    status_code: [200, 503]
+    validate_certs: false
+  register: user_lookup_results
+  loop: "{{ current_group_data.users }}"
+  loop_control:
+    loop_var: user_to_find
+  until: user_lookup_results.status == 200 and user_lookup_results.json | length > 0
+  retries: 15
+  delay: 8
+
+- name: Add members
+  ansible.builtin.uri:
+    url: "https://{{ gitlab_host }}/api/v4/groups/{{ current_group_id }}/members"
+    method: POST
+    headers:
+      PRIVATE-TOKEN: "{{ gitlab_pat }}"
+    body_format: json
+    body:
+      user_id: "{{ user_data.json[0].id }}"
+      access_level: "{{ 40 if current_group_data.name == 'platform-engineers' else 30 }}"
+    status_code: [201, 409, 503]
+    validate_certs: "{{ validate_ssl_certs }}"
+  register: add_user_result
+  until: add_user_result.status in [201, 409]
+  retries: 8
+  delay: 8
+  loop: "{{ user_lookup_results.results }}"
+  loop_control:
+    loop_var: user_data
+  when: user_data.json | length > 0

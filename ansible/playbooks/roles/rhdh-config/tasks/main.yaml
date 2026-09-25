@@ -1,0 +1,197 @@
+---
+- name: Create topology ServiceAccount
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: ServiceAccount
+      metadata:
+        name: topology-integration
+        namespace: "{{ rhdh_namespace }}"
+
+- name: Bind topology SA to view
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: rbac.authorization.k8s.io/v1
+      kind: ClusterRoleBinding
+      metadata:
+        name: topology-integration-binding
+      subjects:
+        - kind: ServiceAccount
+          name: topology-integration
+          namespace: "{{ rhdh_namespace }}"
+      roleRef:
+        apiGroup: rbac.authorization.k8s.io
+        kind: ClusterRole
+        name: view
+
+- name: Grant argocd:create-resources
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: rbac.authorization.k8s.io/v1
+      kind: ClusterRoleBinding
+      metadata:
+        name: rhdh-argocd-admin
+      subjects:
+        - kind: ServiceAccount
+          name: backstage-k8s-integration
+          namespace: "{{ rhdh_namespace }}"
+        - kind: ServiceAccount
+          name: topology-integration
+          namespace: "{{ rhdh_namespace }}"
+      roleRef:
+        apiGroup: rbac.authorization.k8s.io
+        kind: ClusterRole
+        name: cluster-admin
+
+- name: Token secret for topology SA
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: topology-sa-token
+        namespace: "{{ rhdh_namespace }}"
+        annotations:
+          kubernetes.io/service-account.name: topology-integration
+      type: kubernetes.io/service-account-token
+
+- name: Wait for SA token
+  ansible.builtin.command:
+    cmd: oc --context {{ oc_context }} -n {{ rhdh_namespace }} get secret topology-sa-token -o jsonpath={{ '{.data.token}' }}
+  register: topology_token_raw
+  until: topology_token_raw.stdout | length > 0
+  retries: 15
+  delay: 5
+  changed_when: false
+
+- name: Read Argo CD admin password
+  kubernetes.core.k8s_info:
+    kind: Secret
+    name: openshift-gitops-cluster
+    namespace: "{{ gitops_namespace }}"
+  register: argocd_cluster_secret
+
+- name: Read existing backstage-env
+  kubernetes.core.k8s_info:
+    kind: Secret
+    name: backstage-env
+    namespace: "{{ rhdh_namespace }}"
+  register: existing_backstage_env
+
+- name: Reuse or generate backend secret
+  ansible.builtin.set_fact:
+    backend_secret_value: "{{ (existing_backstage_env.resources[0].data.BACKEND_SECRET | b64decode) if (existing_backstage_env.resources | default([]) | length > 0 and existing_backstage_env.resources[0].data.BACKEND_SECRET is defined) else lookup('password', '/dev/null length=48 chars=ascii_letters,digits') }}"
+    kubernetes_sa_token: "{{ topology_token_raw.stdout | b64decode }}"
+    argocd_password: "{{ argocd_cluster_secret.resources[0].data['admin.password'] | b64decode }}"
+    quay_ui_url: "https://{{ quay_url | default(quay_host) }}"
+    backstage_client_secret: "{{ backstage_client_secret | default((existing_backstage_env.resources[0].data.OAUTH_CLIENT_SECRET | b64decode) if (existing_backstage_env.resources | default([]) | length > 0 and existing_backstage_env.resources[0].data.OAUTH_CLIENT_SECRET is defined) else '') }}"
+
+- name: Create backstage-env
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: backstage-env
+        namespace: "{{ rhdh_namespace }}"
+      type: Opaque
+      stringData:
+        GITLAB_TOKEN: "{{ gitlab_pat }}"
+        GITLAB_HOST: "{{ gitlab_host }}"
+        NODE_TLS_REJECT_UNAUTHORIZED: "0"
+        OPENSHIFT_CLUSTER_INGRESS_DOMAIN: "{{ openshift_base_domain }}"
+        OAUTH_CLIENT_SECRET: "{{ backstage_client_secret }}"
+        ARGOCD_PASSWORD: "{{ argocd_password }}"
+        ARGOCD_USERNAME: admin
+        ARGOCD_INSTANCE1_URL: "https://{{ argocd_host }}"
+        KUBERNETES_SA_TOKEN: "{{ kubernetes_sa_token }}"
+        QUAY_TOKEN: "{{ quay_robot_token | default('') }}"
+        QUAY_UI_URL: "{{ quay_ui_url }}"
+        MCP_TOKEN: "{{ mcp_token }}"
+        BACKEND_SECRET: "{{ backend_secret_value }}"
+
+- name: Remove leftover RHDH operator from the backstage namespace
+  kubernetes.core.k8s:
+    state: absent
+    api_version: apps/v1
+    kind: Deployment
+    name: rhdh-operator
+    namespace: "{{ rhdh_namespace }}"
+
+- name: Wait until the Backstage CRD is served
+  kubernetes.core.k8s_info:
+    api_version: apiextensions.k8s.io/v1
+    kind: CustomResourceDefinition
+    name: backstages.rhdh.redhat.com
+  register: bs_crd
+  until: >
+    bs_crd.resources | default([]) | length > 0 and
+    (bs_crd.resources[0].spec.versions | selectattr('served') | list | length > 0)
+  retries: 40
+  delay: 10
+
+- name: Apply Developer Hub overlay with short hostname
+  ansible.builtin.shell: |
+    set -euo pipefail
+    DEST=$(mktemp -d)
+    trap 'rm -rf "${DEST}"' EXIT
+    # Overlay references ../../base — copy the whole rhdh tree so kustomize resolves.
+    mkdir -p "${DEST}/rhdh"
+    cp -a "{{ repo_root }}/gitops/components/rhdh/." "${DEST}/rhdh/"
+    find "${DEST}/rhdh" -type f \( -name '*.yaml' -o -name '*.yml' \) \
+      -exec perl -pi -e 's/CLUSTER_SUBDOMAIN_PLACEHOLDER/{{ openshift_base_domain }}/g' {} +
+    oc --context {{ oc_context }} apply -k "${DEST}/rhdh/overlays/dev"
+  args:
+    executable: /bin/bash
+  register: apply_rhdh
+  changed_when: true
+
+- name: Create Argo CD Application for Developer Hub
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: argoproj.io/v1alpha1
+      kind: Application
+      metadata:
+        name: developer-hub
+        namespace: "{{ gitops_namespace }}"
+      spec:
+        project: default
+        source:
+          repoURL: "https://{{ gitlab_host }}/platform-engineers/{{ gitlab_project_path }}.git"
+          targetRevision: main
+          path: gitops/components/rhdh/overlays/dev
+        destination:
+          server: https://kubernetes.default.svc
+          namespace: "{{ rhdh_namespace }}"
+        syncPolicy:
+          automated:
+            prune: false
+            selfHeal: true
+          syncOptions:
+            - CreateNamespace=true
+            - SkipDryRunOnMissingResource=true
+
+- name: Wait for Backstage CR
+  ansible.builtin.command:
+    cmd: oc --context {{ oc_context }} get backstage developer-hub -n {{ rhdh_namespace }}
+  register: backstage_cr_check
+  until: backstage_cr_check.rc == 0
+  retries: 40
+  delay: 15
+  changed_when: false
+
+- name: Wait for Developer Hub route
+  kubernetes.core.k8s_info:
+    api_version: route.openshift.io/v1
+    kind: Route
+    namespace: "{{ rhdh_namespace }}"
+  register: rhdh_routes
+  until: rhdh_routes.resources | default([]) | length > 0
+  retries: 40
+  delay: 15

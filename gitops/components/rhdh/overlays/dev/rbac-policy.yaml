@@ -1,0 +1,88 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: rbac-policies
+  namespace: backstage
+  labels:
+    app.kubernetes.io/name: backstage
+data:
+  rbac-conditional-policies.yaml: |
+    result: CONDITIONAL
+    roleEntityRef: role:default/location_read_developer
+    pluginId: catalog
+    resourceType: catalog-entity
+    permissionMapping:
+      - read
+    conditions:
+      not:
+        rule: HAS_ANNOTATION
+        resourceType: catalog-entity
+        params:
+          annotation: backstage.io/managed-by
+          value: orchestrator
+    ---
+    result: CONDITIONAL
+    roleEntityRef: role:default/location_read_developer
+    pluginId: catalog
+    resourceType: catalog-entity
+    permissionMapping:
+      - update
+      - delete
+    conditions:
+      rule: IS_ENTITY_OWNER
+      resourceType: catalog-entity
+      params:
+        claims:
+          - $ownerRefs
+  rbac-policy.csv: |
+    p, role:default/location_read, catalog.entity.read, read, allow
+    p, role:default/location_read, catalog.location.read, read, allow
+    p, role:default/location_read_developer, catalog.entity.read, read, allow
+    p, role:default/location_read_developer, catalog.location.read, read, allow
+    p, role:default/platformengineer, catalog.entity.create, create, allow
+    p, role:default/platformengineer, catalog.entity.refresh, update, allow
+    p, role:default/platformengineer, catalog.entity.delete, delete, allow
+    p, role:default/platformengineer, catalog.location.create, create, allow
+    p, role:default/platformengineer, catalog.location.delete, delete, allow
+    p, role:default/scaffolder_execute, scaffolder.action.execute, use, allow
+    p, role:default/scaffolder_execute, scaffolder.template.parameter.read, read, allow
+    p, role:default/scaffolder_execute, scaffolder.template.step.read, read, allow
+    p, role:default/scaffolder_execute, scaffolder.task.create, create, allow
+    p, role:default/scaffolder_execute, scaffolder.task.cancel, use, allow
+    p, role:default/scaffolder_execute, scaffolder.task.read, read, allow
+    p, role:default/scaffolder_execute, catalog.location.create, create, allow
+    p, role:default/developer, catalog.entity.read, read, allow
+    p, role:default/developer, catalog.entity.refresh, update, allow
+    p, role:default/developer, scaffolder.template.read, use, allow
+    p, role:default/developer, scaffolder.task.create, create, allow
+    p, role:default/developer, scaffolder.task.read, read, allow
+    p, role:default/developer, scaffolder.template.parameter.read, read, allow
+    p, role:default/developer, scaffolder.template.step.read, read, allow
+    p, role:default/developer, scaffolder.action.execute, use, allow
+    p, role:default/platformengineer, scaffolder.template.read, use, allow
+    p, role:default/platformengineer, scaffolder.task.create, create, allow
+    p, role:default/platformengineer, scaffolder.task.read, read, allow
+    p, role:default/platformengineer, scaffolder.template.parameter.read, read, allow
+    p, role:default/platformengineer, scaffolder.template.step.read, read, allow
+    p, role:default/platformengineer, scaffolder.action.execute, use, allow
+    p, role:default/plugins, topology.view.read, read, allow
+    p, role:default/plugins, tekton.view.read, read, allow
+    p, role:default/plugins, argocd.view.read, read, allow
+    p, role:default/plugins, kubernetes.proxy, use, allow
+    p, role:default/plugins, kubernetes.clusters.read, read, allow
+    p, role:default/plugins, kubernetes.resources.read, read, allow
+    p, role:default/developer, quay.view.read, read, allow
+    p, role:default/platformengineer, quay.view.read, read, allow
+    p, role:default/developer, tekton.pipelinerun.read, read, allow
+    p, role:default/platformengineer, tekton.pipelinerun.read, read, allow
+    p, role:default/plugins, gitlab.pipeline.read, read, allow
+    p, role:default/developer, gitlab.pipeline.read, read, allow
+    p, role:default/platformengineer, gitlab.pipeline.read, read, allow
+    g, group:default/platform-engineers, role:default/location_read
+    g, group:default/platform-engineers, role:default/platformengineer
+    g, group:default/platform-engineers, role:default/scaffolder_execute
+    g, group:default/platform-engineers, role:default/plugins
+    g, group:default/developers, role:default/location_read_developer
+    g, group:default/developers, role:default/developer
+    g, group:default/developers, role:default/scaffolder_execute
+    g, group:default/developers, role:default/plugins

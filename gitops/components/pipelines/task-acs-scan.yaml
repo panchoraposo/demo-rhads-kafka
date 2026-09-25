@@ -1,0 +1,181 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: rhads-acs-image-scan
+  namespace: rhads-ci
+  labels:
+    app.kubernetes.io/part-of: rhads-demo
+  annotations:
+    task.results.format: application/json
+    task.results.type: roxctl-image-scan
+    task.results.key: SCAN_OUTPUT
+    task.output.location: logs
+    task.results.container: step-report
+spec:
+  params:
+    - name: IMAGE
+      type: string
+    - name: FAIL_ON
+      type: string
+      default: Critical
+  results:
+    - name: SCAN_OUTPUT
+      description: CVE counts for the RHDH Tekton CI Vulnerabilities column
+  steps:
+    - name: scan
+      image: registry.redhat.io/advanced-cluster-security/rhacs-roxctl-rhel9@sha256:3c71bc204142a2d89e7c0a6c02aec582c0f21b7072c0558008d8ceaad0b6bc1d
+      env:
+        - name: HOME
+          value: /tmp
+        - name: IMAGE
+          value: $(params.IMAGE)
+        - name: FAIL_ON
+          value: $(params.FAIL_ON)
+        - name: ROX_API_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: acs-ci
+              key: api-token
+              optional: true
+        - name: ROX_CENTRAL_ADDRESS
+          valueFrom:
+            secretKeyRef:
+              name: acs-ci
+              key: central-host
+              optional: true
+      volumeMounts:
+        - name: reports
+          mountPath: /reports
+      script: |
+        #!/usr/bin/env bash
+        set -euo pipefail
+        mkdir -p /tmp/.docker /reports
+        echo "============================================================"
+        echo "[SSSC] ACS image scan (CVEs)"
+        echo "Control: Advanced Cluster Security inspects the pushed digest."
+        echo "Image:    ${IMAGE}"
+        echo "Fail on:  ${FAIL_ON}"
+        echo "Central:  ${ROX_CENTRAL_ADDRESS:-<not set>}"
+        echo "============================================================"
+        if [ -z "${ROX_API_TOKEN:-}" ] || [ -z "${ROX_CENTRAL_ADDRESS:-}" ]; then
+          echo "FAIL: ACS secret acs-ci missing (api-token / central-host)"
+          echo '{}' > /reports/image-scan.json
+          exit 1
+        fi
+        export ROX_INSECURE_CLIENT=true
+        echo "--- roxctl image scan ---"
+        if ! roxctl central whoami -e "${ROX_CENTRAL_ADDRESS}" --insecure-skip-tls-verify >/tmp/acs-whoami 2>/tmp/acs-whoami.err; then
+          echo "FAIL: ACS Central API not ready (check stackrox: central/scanner pods Running)."
+          sed 's/^/  /' /tmp/acs-whoami.err || true
+          oc get pods -n stackrox 2>/dev/null | sed 's/^/  /' || true
+          echo '{}' > /reports/image-scan.json
+          exit 1
+        fi
+        set +e
+        # One scan (json). A second table scan doubles Central/Scanner load and
+        # looks like a hang when Central-DB is recovering.
+        roxctl image scan \
+          --image="${IMAGE}" \
+          -e "${ROX_CENTRAL_ADDRESS}" \
+          --insecure-skip-tls-verify \
+          --retries=10 \
+          --retry-delay=6 \
+          -o json > /reports/image-scan.json 2>/tmp/acs-scan.err
+        json_rc=$?
+        if [ "${json_rc}" -eq 0 ] && command -v python3 >/dev/null 2>&1; then
+          python3 - <<'PY' || true
+        import json
+        data=json.load(open("/reports/image-scan.json"))
+        print("ACS scan json keys:", list(data)[:8] if isinstance(data, dict) else type(data))
+        PY
+        else
+          echo "--- scan json (first 2k) ---"
+          head -c 2000 /reports/image-scan.json || true
+          echo
+        fi
+        set -e
+        if [ ! -s /reports/image-scan.json ]; then
+          echo '{}' > /reports/image-scan.json
+        fi
+        echo
+        if [ "${json_rc}" -ne 0 ]; then
+          echo "WARN: roxctl image scan exited ${json_rc}; SCAN_OUTPUT will still be published."
+          if grep -qiE 'handshake failed|Unavailable desc' /tmp/acs-scan.err 2>/dev/null; then
+            echo "HINT: ACS scanner gRPC failed — check oc get pods -n stackrox (central, central-db, scanner must be Running, not Pending on old node hostnames)."
+            tail -5 /tmp/acs-scan.err | sed 's/^/  /' || true
+          fi
+        else
+          echo "PASS: ACS image scan completed."
+        fi
+    - name: summarize
+      image: registry.access.redhat.com/ubi9/ubi:9.6
+      volumeMounts:
+        - name: reports
+          mountPath: /reports
+      script: |
+        #!/usr/bin/env bash
+        set -euo pipefail
+        python3 - <<'PY' > "$(results.SCAN_OUTPUT.path)"
+        import json, sys
+        path = "/reports/image-scan.json"
+        try:
+            data = json.load(open(path))
+        except Exception:
+            data = {}
+
+        def n(v):
+            if v is None:
+                return 0
+            if isinstance(v, dict):
+                for key in ("total", "Total", "count", "Count"):
+                    if key in v:
+                        return n(v[key])
+                return 0
+            try:
+                return int(v)
+            except Exception:
+                return 0
+
+        def pick(d, *keys):
+            for k in keys:
+                if isinstance(d, dict) and k in d:
+                    return d[k]
+            return 0
+
+        summary = {}
+        if isinstance(data, dict):
+            node = data.get("result") or data
+            if isinstance(node, dict):
+                raw = node.get("summary") or node.get("vulnSummary") or {}
+                if isinstance(raw, dict):
+                    summary = raw
+        crit = n(pick(summary, "CRITICAL", "critical"))
+        high = n(pick(summary, "IMPORTANT", "high", "HIGH"))
+        med = n(pick(summary, "MODERATE", "medium", "MEDIUM"))
+        low = n(pick(summary, "LOW", "low"))
+        unk = n(pick(summary, "UNKNOWN", "unknown"))
+        out = {
+            "vulnerabilities": {
+                "critical": crit,
+                "high": high,
+                "medium": med,
+                "low": low,
+                "unknown": unk,
+            }
+        }
+        json.dump(out, sys.stdout, separators=(",", ":"))
+        PY
+        echo
+        echo "SCAN_OUTPUT=$(cat "$(results.SCAN_OUTPUT.path)")"
+    - name: report
+      image: registry.access.redhat.com/ubi9/ubi:9.6
+      volumeMounts:
+        - name: reports
+          mountPath: /reports
+      script: |
+        #!/usr/bin/env bash
+        set -euo pipefail
+        cat /reports/image-scan.json
+  volumes:
+    - name: reports
+      emptyDir: {}

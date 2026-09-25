@@ -1,0 +1,107 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: rhads-generate-sbom
+  namespace: rhads-ci
+  labels:
+    app.kubernetes.io/part-of: rhads-demo
+  annotations:
+    task.output.location: results
+    task.results.format: application/text
+    task.results.type: external-link
+    task.results.key: LINK_TO_SBOM
+spec:
+  params:
+    - name: IMAGE
+      type: string
+    - name: SOURCE_NAME
+      type: string
+    - name: SOURCE_VERSION
+      type: string
+      default: latest
+    - name: TPA_URL
+      type: string
+      default: ""
+  workspaces:
+    - name: source
+    - name: dockerconfig
+      optional: true
+  results:
+    - name: SBOM_PATH
+      description: Path of the CycloneDX SBOM
+    - name: LINK_TO_SBOM
+      description: TPA URL opened by the RHDH CI SBOM action
+  steps:
+    - name: syft
+      image: registry.access.redhat.com/ubi9/ubi:9.6
+      env:
+        - name: IMAGE
+          value: $(params.IMAGE)
+        - name: SOURCE_NAME
+          value: $(params.SOURCE_NAME)
+        - name: SOURCE_VERSION
+          value: $(params.SOURCE_VERSION)
+        - name: TPA_URL
+          value: $(params.TPA_URL)
+        - name: HOME
+          value: /tekton/home
+      script: |
+        #!/usr/bin/env bash
+        set -euo pipefail
+        echo "============================================================"
+        echo "[SSSC] Generate SBOM (Syft → CycloneDX + SPDX)"
+        echo "Control: inventory every package in the image before it is signed."
+        echo "Image: ${IMAGE}"
+        echo "============================================================"
+        if ! command -v syft >/dev/null 2>&1; then
+          echo "Installing Syft (Nexus first; GitHub is a fallback with a hard timeout)..."
+          ok=0
+          for url in \
+            http://nexus.nexus.svc:8081/repository/raw-hosted/rhads/syft_1.27.1_linux_amd64.tar.gz \
+            https://github.com/anchore/syft/releases/download/v1.27.1/syft_1.27.1_linux_amd64.tar.gz
+          do
+            echo "GET ${url}"
+            if curl -fsSL --retry 2 --max-time 45 -o /tmp/syft.tgz "${url}"; then
+              ok=1
+              break
+            fi
+          done
+          if [ "${ok}" -ne 1 ]; then
+            echo "FAIL: could not download Syft from Nexus or GitHub" >&2
+            exit 1
+          fi
+          tar -xzf /tmp/syft.tgz -C /usr/local/bin syft
+        fi
+        mkdir -p "${HOME}/.docker"
+        if [ -f "$(workspaces.dockerconfig.path)/.dockerconfigjson" ]; then
+          cp "$(workspaces.dockerconfig.path)/.dockerconfigjson" "${HOME}/.docker/config.json"
+        elif [ -f "$(workspaces.dockerconfig.path)/config.json" ]; then
+          cp "$(workspaces.dockerconfig.path)/config.json" "${HOME}/.docker/config.json"
+        fi
+        syft version
+        mkdir -p "$(workspaces.source.path)/sbom"
+        syft "registry:${IMAGE}" \
+          --source-name "${SOURCE_NAME}" \
+          --source-version "${SOURCE_VERSION}" \
+          -o "cyclonedx-json=$(workspaces.source.path)/sbom/sbom.cdx.json" \
+          -o "spdx-json=$(workspaces.source.path)/sbom/sbom.spdx.json"
+        echo -n "$(workspaces.source.path)/sbom/sbom.cdx.json" > "$(results.SBOM_PATH.path)"
+        if [ -n "${TPA_URL}" ]; then
+          tpa="${TPA_URL%/}"
+          echo -n "${tpa}/" > "$(results.LINK_TO_SBOM.path)"
+        else
+          echo -n "${IMAGE}" > "$(results.LINK_TO_SBOM.path)"
+        fi
+        echo
+        echo "--- CycloneDX components (first 20) ---"
+        python3 - <<PY || head -c 2000 "$(workspaces.source.path)/sbom/sbom.cdx.json"
+        import json
+        p = "$(workspaces.source.path)/sbom/sbom.cdx.json"
+        data = json.load(open(p))
+        comps = data.get("components") or []
+        print(f"components: {len(comps)}")
+        for c in comps[:20]:
+            print(f"  - {c.get('name')} {c.get('version')} ({c.get('type')})")
+        PY
+        echo
+        echo "PASS: SBOM written to sbom/sbom.cdx.json (upload to TPA is a later task)"

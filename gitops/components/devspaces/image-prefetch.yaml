@@ -1,0 +1,65 @@
+# Pre-pull Dev Spaces images on every node so the first workspace start is not
+# waiting on udi-rhel9 (~5Gi) and code-rhel9 (~1.7Gi).
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: rhads-devspaces-image-prefetch
+  namespace: openshift-devspaces
+  labels:
+    app.kubernetes.io/part-of: rhads-demo
+    app.kubernetes.io/name: rhads-devspaces-image-prefetch
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: rhads-devspaces-image-prefetch
+  updateStrategy:
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: rhads-devspaces-image-prefetch
+        app.kubernetes.io/part-of: rhads-demo
+    spec:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: node-role.kubernetes.io/worker
+                    operator: Exists
+                  - key: node-role.kubernetes.io/control-plane
+                    operator: DoesNotExist
+      tolerations:
+        - operator: Exists
+      initContainers:
+        - name: prefetch-udi
+          image: registry.redhat.io/devspaces/udi-rhel9:latest
+          command: ["true"]
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+        - name: prefetch-code
+          image: registry.redhat.io/devspaces/code-rhel9:latest
+          command: ["true"]
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+        - name: prefetch-traefik
+          image: registry.redhat.io/devspaces/traefik-rhel9:latest
+          command: ["true"]
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+      containers:
+        - name: pause
+          image: registry.access.redhat.com/ubi9/ubi-micro:latest
+          command: ["sleep", "infinity"]
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              memory: 32Mi

@@ -1,0 +1,86 @@
+---
+- name: Wait for Vault pod
+  ansible.builtin.command:
+    cmd: oc --context {{ oc_context }} -n {{ vault_namespace }} rollout status deploy/vault --timeout=180s
+  register: wait_vault_rollout
+  retries: 20
+  delay: 15
+  until: wait_vault_rollout.rc == 0
+
+- name: Read existing Vault init secret
+  kubernetes.core.k8s_info:
+    kind: Secret
+    name: vault-init
+    namespace: "{{ vault_namespace }}"
+  register: vault_init_secret
+
+- name: Initialize and unseal Vault
+  ansible.builtin.script: "{{ role_path }}/files/init_unseal_vault.sh"
+  environment:
+    OC_CONTEXT: "{{ oc_context }}"
+    VAULT_NAMESPACE: "{{ vault_namespace }}"
+  no_log: true
+
+- name: Capture Vault root token
+  ansible.builtin.command:
+    cmd: oc --context {{ oc_context }} -n {{ vault_namespace }} get secret vault-init -o jsonpath={.data.root_token}
+  register: vault_root_b64
+  changed_when: false
+  no_log: true
+
+- name: Set Vault root token fact
+  ansible.builtin.set_fact:
+    vault_root_token: "{{ vault_root_b64.stdout | b64decode }}"
+  no_log: true
+
+- name: Configure Vault KV, policies and Kubernetes auth
+  ansible.builtin.script: "{{ role_path }}/files/configure_vault.sh"
+  environment:
+    OC_CONTEXT: "{{ oc_context }}"
+    VAULT_NAMESPACE: "{{ vault_namespace }}"
+    VAULT_ADMIN_PASSWORD: "{{ common_user_password }}"
+  no_log: true
+
+- name: Seed rhads-ci secrets into Vault
+  ansible.builtin.command:
+    cmd: python3 {{ role_path }}/files/seed_ci_secrets.py
+  environment:
+    OC_CONTEXT: "{{ oc_context }}"
+    VAULT_NAMESPACE: "{{ vault_namespace }}"
+    CI_NAMESPACE: "{{ pipelines_namespace }}"
+    VAULT_ROOT_TOKEN: "{{ vault_root_token }}"
+  register: vault_seed
+  changed_when: true
+
+- name: Wait for External Secrets operand deployments
+  ansible.builtin.command:
+    cmd: oc --context {{ oc_context }} -n {{ eso_operand_namespace }} wait --for=condition=Available deploy --all --timeout=30s
+  register: eso_deploys
+  retries: 40
+  delay: 10
+  until: eso_deploys.rc == 0
+
+- name: Nudge ClusterSecretStore so ESO does not wait out its error backoff
+  ansible.builtin.command:
+    cmd: >
+      oc --context {{ oc_context }} annotate clustersecretstore vault-backend
+      rhads.demo/revalidate={{ lookup('pipe', 'date +%s') }}
+      --overwrite
+  failed_when: false
+  changed_when: true
+
+- name: Wait for ClusterSecretStore vault-backend
+  kubernetes.core.k8s_info:
+    api_version: external-secrets.io/v1
+    kind: ClusterSecretStore
+    name: vault-backend
+  register: css_vault
+  retries: 60
+  delay: 10
+  until: >
+    css_vault.resources | default([]) | length > 0 and
+    (
+      (css_vault.resources[0].status.conditions | default([]) | selectattr('type', 'equalto', 'Ready') | list | length > 0)
+      and
+      (css_vault.resources[0].status.conditions | selectattr('type', 'equalto', 'Ready') | list)[0].status == 'True'
+    )

@@ -1,0 +1,34 @@
+# DevWorkspace provisions Role devworkspace-use-container-build in each workspace
+# namespace when disableContainerBuildCapabilities is false. The SCC name comes from
+# CheCluster devEnvironments.containerBuildConfiguration (container-build SCC).
+# The controller SA must hold that SCC "use" before it can grant workspace SAs.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: rhads-devworkspace-container-build
+  labels:
+    app.kubernetes.io/part-of: rhads-demo
+rules:
+  - apiGroups:
+      - security.openshift.io
+    resources:
+      - securitycontextconstraints
+    resourceNames:
+      - container-build
+    verbs:
+      - use
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: rhads-devworkspace-controller-container-build
+  labels:
+    app.kubernetes.io/part-of: rhads-demo
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: rhads-devworkspace-container-build
+subjects:
+  - kind: ServiceAccount
+    name: devworkspace-controller-serviceaccount
+    namespace: openshift-operators

@@ -1,0 +1,5 @@
+apiVersion: v2
+name: rhads-build
+description: RHADS CI — build, sign, scan and promote pipelines triggered from GitLab
+type: application
+version: 0.1.0

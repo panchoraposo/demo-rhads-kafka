@@ -1,0 +1,126 @@
+---
+- name: Lookup platform-engineers group
+  ansible.builtin.uri:
+    url: "https://{{ gitlab_host }}/api/v4/groups?search=platform-engineers"
+    method: GET
+    headers:
+      PRIVATE-TOKEN: "{{ gitlab_pat }}"
+    status_code: [200, 503]
+    validate_certs: "{{ validate_ssl_certs }}"
+  register: platform_engineers_group_info
+  until: platform_engineers_group_info.status == 200 and platform_engineers_group_info.json | length > 0
+  retries: 10
+  delay: 10
+
+- name: Create platform project
+  ansible.builtin.uri:
+    url: "https://{{ gitlab_host }}/api/v4/projects"
+    method: POST
+    headers:
+      PRIVATE-TOKEN: "{{ gitlab_pat }}"
+    body_format: json
+    body:
+      name: "{{ gitlab_project_name }}"
+      path: "{{ gitlab_project_path }}"
+      namespace_id: "{{ platform_engineers_group_info.json[0].id }}"
+      visibility: public
+      initialize_with_readme: false
+    status_code: [201, 400, 409]
+    validate_certs: "{{ validate_ssl_certs }}"
+  register: create_project_result
+
+- name: Lookup platform project id
+  ansible.builtin.uri:
+    url: "https://{{ gitlab_host }}/api/v4/projects/platform-engineers%2F{{ gitlab_project_path }}"
+    method: GET
+    headers:
+      PRIVATE-TOKEN: "{{ gitlab_pat }}"
+    validate_certs: "{{ validate_ssl_certs }}"
+    status_code: [200]
+  register: platform_project
+
+- name: Allow unprotected default branches (instance)
+  ansible.builtin.uri:
+    url: "https://{{ gitlab_host }}/api/v4/application/settings"
+    method: PUT
+    headers:
+      PRIVATE-TOKEN: "{{ gitlab_pat }}"
+    body_format: json
+    body:
+      default_branch_protection: 0
+    status_code: [200, 400]
+    validate_certs: "{{ validate_ssl_certs }}"
+
+- name: Unprotect main so the installer can re-push
+  ansible.builtin.uri:
+    url: "https://{{ gitlab_host }}/api/v4/projects/{{ platform_project.json.id }}/protected_branches/main"
+    method: DELETE
+    headers:
+      PRIVATE-TOKEN: "{{ gitlab_pat }}"
+    status_code: [204, 404]
+    validate_certs: "{{ validate_ssl_certs }}"
+
+- name: Push working tree to GitLab
+  ansible.builtin.shell: |
+    set -euo pipefail
+    HOST="{{ gitlab_host | regex_replace('^https?://', '') }}"
+    DEST=/tmp/rhads-push
+    rm -rf "${DEST}"
+    mkdir -p "${DEST}"
+    rsync -a \
+      --exclude '.git/' \
+      --exclude 'venv/' \
+      --exclude '__pycache__/' \
+      --exclude '.DS_Store' \
+      "{{ repo_root }}/" "${DEST}/"
+    cd "${DEST}"
+    # HOST is scheme-stripped. publish:gitlab repoUrl is "host?owner=&repo="; a
+    # https:// prefix makes Backstage look up integration host "https" and fail.
+    APPS="{{ openshift_base_domain | regex_replace('^https?://', '') }}"
+    case "${APPS}" in apps.*) ;; *) APPS="apps.${APPS}" ;; esac
+    QUAY="{{ quay_host | regex_replace('^https?://', '') }}"
+    # Substitute cluster-specific hosts into templates + GitOps (Kafka Console,
+    # Nexus/Vault/ACS/RHDH short routes). Without this, scaffolder defaults stay
+    # as *_PLACEHOLDER and the first PipelineRun never starts.
+    find . -type f \( -name '*.yaml' -o -name '*.yml' -o -name '*.yaml.j2' \) \
+      -print0 | xargs -0 perl -pi -e \
+      "s/GITLAB_HOST_PLACEHOLDER/${HOST}/g; s/QUAY_HOST_PLACEHOLDER/${QUAY}/g; s/CLUSTER_SUBDOMAIN_PLACEHOLDER/${APPS}/g"
+    git init
+    git checkout -B main
+    git -c user.name='RHADS Ansible' -c user.email='ansible@rhads.demo' add -A
+    git -c user.name='RHADS Ansible' -c user.email='ansible@rhads.demo' \
+      commit -m "RHADS platform for {{ gitlab_host }}"
+    git remote add gitlab "https://oauth2:{{ gitlab_pat }}@${HOST}/platform-engineers/{{ gitlab_project_path }}.git"
+    GIT_SSL_NO_VERIFY=true git push -u gitlab main --force
+  args:
+    executable: /bin/bash
+  environment:
+    GIT_SSL_NO_VERIFY: "true"
+
+- name: Record GitLab repo URL
+  ansible.builtin.set_fact:
+    gitlab_platform_repo: "https://{{ gitlab_host }}/platform-engineers/{{ gitlab_project_path }}.git"
+
+- name: Point Argo CD Applications at the GitLab platform repo
+  ansible.builtin.command: >
+    oc --context {{ oc_context }} -n {{ gitops_namespace }} patch application {{ item }}
+    --type=merge
+    -p '{"spec":{"source":{"repoURL":"{{ gitlab_platform_repo }}","targetRevision":"main"},"syncPolicy":{"automated":{"prune":false,"selfHeal":true}}}}'
+  loop:
+    - rhads-operators
+    - rhads-odf
+    - rhads-keycloak
+    - rhads-rhtas
+    - rhads-rhtpa
+    - rhads-rhacs
+    - rhads-pipelines
+    - rhads-nexus
+    - rhads-vault
+    - rhads-external-secrets
+    - rhads-devspaces
+    - rhads-quay-ns
+    - rhads-kafka
+    - rhads-observability
+  register: patch_argo_src
+  failed_when: false
+  changed_when: patch_argo_src.rc == 0

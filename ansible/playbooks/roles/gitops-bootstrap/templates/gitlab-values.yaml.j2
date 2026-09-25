@@ -1,0 +1,42 @@
+gitlab:
+  image: {{ gitlab_image }}
+  host: "{{ gitlab_hostname }}"
+  https: "true"
+  email:
+    address: "gitlab@{{ openshift_base_domain }}"
+    displayName: "GitLab Admin"
+    replyTo: "noreply@{{ openshift_base_domain }}"
+  rootEmail: "root@{{ openshift_base_domain }}"
+  rootPassword: "{{ gitlab_root_password }}"
+  keyBase:
+    db: "rhadsdemo0123456789"
+    otp: "rhadsdemo0123456789"
+    secret: "rhadsdemo0123456789"
+  ssh:
+    host: "{{ gitlab_hostname }}"
+    port: "22"
+  smtp:
+    enabled: "false"
+    domain: "rhads.demo"
+    host: localhost
+    port: "587"
+    user: gitlab
+    password: gitlab
+  users:
+    count: 0
+  groups:
+    - name: rhdh
+  runner:
+    image: docker.io/gitlab/gitlab-runner:v19.3.0
+    token: pending
+
+postgresql:
+  dbUser: gitlab
+  dbPassword: passw0rd
+  dbName: gitlab_production
+
+cluster:
+  subdomain: "{{ openshift_base_domain }}"
+
+orchestrator:
+  namespace: orchestrator

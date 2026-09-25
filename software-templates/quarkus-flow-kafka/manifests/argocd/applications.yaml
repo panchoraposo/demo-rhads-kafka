@@ -1,0 +1,210 @@
+# App-of-apps: CI pipeline + deployments for dev / staging / prod
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: ${{ values.component_id }}-build
+  namespace: ${{ values.gitops_namespace }}
+  labels:
+    rht-gitops.com/${{ values.gitops_namespace }}: ${{ values.component_id }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io/foreground
+spec:
+  project: ${{ values.gitops_project }}
+  source:
+    repoURL: ${{ values.source_repository_gitops }}
+    targetRevision: HEAD
+    path: ./helm/build
+    helm:
+      values: |
+        nameOverride: ${{ values.component_id }}
+        owner: ${{ values.owner }}
+        build:
+          language: ${{ values.build_language }}
+          cacheSize: 16Gi
+        appRuntime: quarkus
+        git:
+          host: ${{ values.repository_host }}
+          repo: ${{ values.source_repository }}
+          gitopsRepo: ${{ values.source_repository_gitops }}
+        image:
+          dockerfile: ${{ values.dockerfile }}
+          registry: ${{ values.image_registry }}
+          organization: ${{ values.image_organization }}
+          password: ${{ values.image_password }}
+          host: ${{ values.image_host }}
+          name: ${{ values.image_name }}
+          namespace: ${{ values.namespace }}
+          tag: ${{ values.image_tag }}
+        cluster:
+          subdomain: ${{ values.cluster_subdomain }}
+        kafka:
+          bootstrapServers: rhads-kafka-kafka-bootstrap.kafka.svc:9092
+        maas:
+          apiKey: ${{ values.maas_api_key | dump }}
+          baseUrl: ${{ values.maas_base_url | dump }}
+          model: ${{ values.maas_model | dump }}
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: ${{ values.namespace }}
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - SkipDryRunOnMissingResource=true
+    managedNamespaceMetadata:
+      labels:
+        argocd.argoproj.io/managed-by: ${{ values.gitops_namespace }}
+        rhads.demo/ci-secrets: "true"
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: ${{ values.component_id }}-dev
+  namespace: ${{ values.gitops_namespace }}
+  labels:
+    rht-gitops.com/${{ values.gitops_namespace }}: ${{ values.component_id }}
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io/foreground
+spec:
+  project: ${{ values.gitops_project }}
+  source:
+    repoURL: ${{ values.source_repository_gitops }}
+    targetRevision: HEAD
+    path: ./helm/app
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-dev.yaml
+      values: |
+        nameOverride: ${{ values.component_id }}
+        user: ${{ values.owner }}
+        runtime: quarkus
+        service:
+          port: ${{ values.port }}
+        image:
+          registry: ${{ values.image_registry }}
+          organization: ${{ values.image_organization }}
+          host: ${{ values.image_host }}
+          name: ${{ values.image_name }}
+          namespace: ${{ values.namespace }}
+          password: ${{ values.image_password }}
+        kafka:
+          bootstrapServers: rhads-kafka-kafka-bootstrap.kafka.svc:9092
+        maas:
+          enabled: true
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: ${{ values.namespace }}
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - SkipDryRunOnMissingResource=true
+    managedNamespaceMetadata:
+      labels:
+        argocd.argoproj.io/managed-by: ${{ values.gitops_namespace }}
+        rhads.demo/ci-secrets: "true"
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: ${{ values.component_id }}-staging
+  namespace: ${{ values.gitops_namespace }}
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io/foreground
+spec:
+  project: ${{ values.gitops_project }}
+  source:
+    repoURL: ${{ values.source_repository_gitops }}
+    targetRevision: HEAD
+    path: ./helm/app
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-staging.yaml
+      values: |
+        nameOverride: ${{ values.component_id }}
+        user: ${{ values.owner }}
+        runtime: quarkus
+        service:
+          port: ${{ values.port }}
+        image:
+          registry: ${{ values.image_registry }}
+          organization: ${{ values.image_organization }}
+          host: ${{ values.image_host }}
+          name: ${{ values.image_name }}
+          namespace: ${{ values.component_id }}-staging
+          password: ${{ values.image_password }}
+        kafka:
+          bootstrapServers: rhads-kafka-kafka-bootstrap.kafka.svc:9092
+        maas:
+          enabled: true
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: ${{ values.component_id }}-staging
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - SkipDryRunOnMissingResource=true
+    managedNamespaceMetadata:
+      labels:
+        argocd.argoproj.io/managed-by: ${{ values.gitops_namespace }}
+        rhads.demo/ci-secrets: "true"
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: ${{ values.component_id }}-prod
+  namespace: ${{ values.gitops_namespace }}
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io/foreground
+spec:
+  project: ${{ values.gitops_project }}
+  source:
+    repoURL: ${{ values.source_repository_gitops }}
+    targetRevision: HEAD
+    path: ./helm/app
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-prod.yaml
+      values: |
+        nameOverride: ${{ values.component_id }}
+        user: ${{ values.owner }}
+        runtime: quarkus
+        service:
+          port: ${{ values.port }}
+        image:
+          registry: ${{ values.image_registry }}
+          organization: ${{ values.image_organization }}
+          host: ${{ values.image_host }}
+          name: ${{ values.image_name }}
+          namespace: ${{ values.component_id }}-prod
+          password: ${{ values.image_password }}
+        kafka:
+          bootstrapServers: rhads-kafka-kafka-bootstrap.kafka.svc:9092
+        maas:
+          enabled: true
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: ${{ values.component_id }}-prod
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - SkipDryRunOnMissingResource=true
+    managedNamespaceMetadata:
+      labels:
+        argocd.argoproj.io/managed-by: ${{ values.gitops_namespace }}
+        rhads.demo/ci-secrets: "true"

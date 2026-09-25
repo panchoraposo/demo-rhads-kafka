@@ -1,0 +1,48 @@
+---
+openapi: 3.0.3
+info:
+  title: ${{values.component_id}} API
+  version: 1.0-SNAPSHOT
+  description: Agentic Trip Planner — Quarkus Flow + Kafka HITL
+paths:
+  /trip/plan:
+    post:
+      summary: Start trip planning (Flow emits Kafka events; may pause for approval)
+      responses:
+        "200":
+          description: Plan result or pending approval payload
+        "202":
+          description: Planning started / pending
+  /trip/plan/status:
+    get:
+      summary: Poll plan status by instanceId or requestId
+      parameters:
+        - name: instanceId
+          in: query
+          schema:
+            type: string
+        - name: requestId
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+  /trip/plan/latest:
+    get:
+      summary: Latest plan snapshot
+      responses:
+        "200":
+          description: OK
+  /trip/approve:
+    put:
+      summary: Approve or reject a pending trip (resumes Flow via Kafka)
+      responses:
+        "200":
+          description: OK
+  /q/health:
+    get:
+      summary: Health
+      responses:
+        "200":
+          description: OK

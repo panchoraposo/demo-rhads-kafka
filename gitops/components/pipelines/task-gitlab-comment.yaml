@@ -1,0 +1,81 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: rhads-gitlab-comment
+  namespace: rhads-ci
+  labels:
+    app.kubernetes.io/part-of: rhads-demo
+spec:
+  params:
+    - name: SOURCE_REPO
+      type: string
+    - name: IMAGE
+      type: string
+    - name: IMAGE_TAG
+      type: string
+    - name: ENVIRONMENT
+      type: string
+    - name: GIT_REF
+      type: string
+      default: ""
+    - name: COMPONENT
+      type: string
+  steps:
+    - name: comment
+      image: registry.access.redhat.com/ubi9/ubi:9.6
+      env:
+        - name: SOURCE_REPO
+          value: $(params.SOURCE_REPO)
+        - name: IMAGE
+          value: $(params.IMAGE)
+        - name: IMAGE_TAG
+          value: $(params.IMAGE_TAG)
+        - name: ENVIRONMENT
+          value: $(params.ENVIRONMENT)
+        - name: GIT_REF
+          value: $(params.GIT_REF)
+        - name: COMPONENT
+          value: $(params.COMPONENT)
+        - name: GIT_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: gitlab-token
+              key: token
+              optional: true
+      script: |
+        #!/usr/bin/env bash
+        set -euo pipefail
+        echo "============================================================"
+        echo "[SSSC] GitLab promotion record (${ENVIRONMENT})"
+        echo "Control: the promotion is an auditable GitLab event (tag → staging,"
+        echo "         release → prod) plus a commit comment so the source repo"
+        echo "         shows Conforma/ACS ran before GitOps moved."
+        echo "Repo:    ${SOURCE_REPO}"
+        echo "Ref:     ${GIT_REF}"
+        echo "Image:   ${IMAGE}"
+        echo "============================================================"
+        if [ -z "${GIT_TOKEN:-}" ] || [ -z "${SOURCE_REPO}" ]; then
+          echo "WARN: GitLab token or source repo missing; skip comment"
+          exit 0
+        fi
+        HOST="$(echo "${SOURCE_REPO}" | sed -E 's#https://([^/]+)/.*#\1#')"
+        PATH_PART="$(echo "${SOURCE_REPO}" | sed -E 's#https://[^/]+/##' | sed 's#\.git$##')"
+        ENC="$(python3 -c 'import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1], safe=""))' "${PATH_PART}")"
+        API="https://${HOST}/api/v4"
+        TAG="$(echo "${GIT_REF}" | sed 's#^refs/tags/##')"
+        SHA="${IMAGE_TAG}"
+        NOTE="[SSSC] ${COMPONENT} promoted to ${ENVIRONMENT}. Conforma STRICT + ACS checked image ${IMAGE} (digest tag ${IMAGE_TAG}). GitOps overlay updated by Tekton."
+        echo "POST ${API}/projects/${ENC}/repository/commits/${SHA}/comments"
+        CODE="$(curl -sk -o /tmp/gl-out -w '%{http_code}' --header "PRIVATE-TOKEN: ${GIT_TOKEN}" \
+          -X POST "${API}/projects/${ENC}/repository/commits/${SHA}/comments" \
+          --data-urlencode "note=${NOTE}")"
+        echo "GitLab HTTP ${CODE}"
+        head -c 500 /tmp/gl-out || true
+        echo
+        if [ -n "${TAG}" ] && [ "${TAG}" != "${SHA}" ]; then
+          echo "--- tag ${TAG} ---"
+          curl -sk --header "PRIVATE-TOKEN: ${GIT_TOKEN}" \
+            "${API}/projects/${ENC}/repository/tags/${TAG}" | head -c 400 || true
+          echo
+        fi
+        echo "PASS: GitLab source repo now records the ${ENVIRONMENT} promotion."

@@ -1,0 +1,42 @@
+# Hostname is sso.apps.<cluster> for RHDH/TPA. Do not apply this CR on workshop
+# clusters that already serve realm `sso` for the OpenShift console.
+apiVersion: k8s.keycloak.org/v2beta1
+kind: Keycloak
+metadata:
+  name: keycloak
+  namespace: keycloak
+  labels:
+    app: sso
+    app.kubernetes.io/part-of: rhads-demo
+  annotations:
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  instances: 1
+  db:
+    vendor: postgres
+    host: postgres-db
+    port: 5432
+    database: keycloak
+    usernameSecret:
+      name: keycloak-db-secret
+      key: username
+    passwordSecret:
+      name: keycloak-db-secret
+      key: password
+  http:
+    httpEnabled: true
+  hostname:
+    hostname: {{ keycloak_hostname }}
+    strict: false
+    strictBackchannel: false
+    backchannelDynamic: false
+  additionalOptions:
+    - name: cache
+      value: local
+  proxy:
+    headers: xforwarded
+  ingress:
+    enabled: true
+    className: openshift-default
+    annotations:
+      route.openshift.io/termination: edge

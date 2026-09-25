@@ -1,0 +1,60 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  annotations:
+    argocd.argoproj.io/sync-wave: "4"
+  labels:
+    app: gitlab-runner
+  name: gitlab-runner
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: gitlab-runner
+  template:
+    metadata:
+      labels:
+        app: gitlab-runner
+    spec:
+      serviceAccountName: gitlab-runner
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: node-role.kubernetes.io/worker
+                    operator: Exists
+                  - key: node-role.kubernetes.io/control-plane
+                    operator: DoesNotExist
+      containers:
+      - name: gitlab-runner
+        image: {{ .Values.gitlab.runner.image | default "docker.io/gitlab/gitlab-runner:v19.3.0" }}
+        imagePullPolicy: IfNotPresent
+        command: ["/bin/bash", "/rhads/runner-start.sh"]
+        env:
+        - name: GITLAB_URL
+          value: "http://gitlab.gitlab.svc"
+        - name: RUNNER_TOKEN_FILE
+          value: /runner-token/token
+        resources:
+          requests:
+            cpu: 100m
+            memory: 256Mi
+          limits:
+            memory: 1Gi
+        securityContext:
+          runAsUser: 0
+        volumeMounts:
+        - name: runner-start
+          mountPath: /rhads
+        - name: runner-token
+          mountPath: /runner-token
+          readOnly: true
+      volumes:
+      - name: runner-start
+        configMap:
+          name: gitlab-runner-start
+          defaultMode: 0755
+      - name: runner-token
+        secret:
+          secretName: gitlab-runner-auth

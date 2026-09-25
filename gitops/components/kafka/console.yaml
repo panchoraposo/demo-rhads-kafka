@@ -1,0 +1,16 @@
+apiVersion: console.streamshub.github.com/v1alpha1
+kind: Console
+metadata:
+  name: rhads-kafka-console
+  namespace: kafka-console
+  labels:
+    app.kubernetes.io/part-of: rhads-demo
+  annotations:
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  # OpenShift Route host — installer substitutes apps.<baseDomain>
+  hostname: kafka-console.CLUSTER_SUBDOMAIN_PLACEHOLDER
+  kafkaClusters:
+    - name: rhads-kafka
+      namespace: kafka
+      listener: plain

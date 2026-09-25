@@ -1,0 +1,76 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: rhads-upload-tpa
+  namespace: rhads-ci
+  labels:
+    app.kubernetes.io/part-of: rhads-demo
+spec:
+  params:
+    - name: TPA_URL
+      type: string
+    - name: TPA_TOKEN_URL
+      type: string
+    - name: TPA_CLIENT_ID
+      type: string
+      default: cli
+  workspaces:
+    - name: source
+  steps:
+    - name: upload
+      image: registry.access.redhat.com/ubi9/ubi:9.6
+      env:
+        - name: TPA_URL
+          value: $(params.TPA_URL)
+        - name: TPA_TOKEN_URL
+          value: $(params.TPA_TOKEN_URL)
+        - name: TPA_CLIENT_ID
+          value: $(params.TPA_CLIENT_ID)
+        - name: TPA_CLIENT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: tpa-oidc
+              key: client-secret
+              optional: true
+      script: |
+        #!/usr/bin/env bash
+        set -euo pipefail
+        echo "============================================================"
+        echo "[SSSC] Upload SBOM to Trusted Profile Analyzer"
+        echo "Control: TPA is the searchable inventory of what shipped."
+        echo "TPA: ${TPA_URL}"
+        echo "============================================================"
+        SBOM="$(workspaces.source.path)/sbom/sbom.cdx.json"
+        test -f "${SBOM}" || { echo "FAIL: SBOM missing at ${SBOM}"; exit 1; }
+        echo "SBOM: ${SBOM} ($(wc -c < "${SBOM}") bytes)"
+        if [ -z "${TPA_CLIENT_SECRET:-}" ] || [ -z "${TPA_URL}" ]; then
+          echo "WARN: TPA OIDC secret missing; SBOM stays in the workspace and Quay"
+          exit 0
+        fi
+        echo "--- request OIDC token (realm trustify, client ${TPA_CLIENT_ID}) ---"
+        RESP="$(curl -sk -X POST "${TPA_TOKEN_URL}" \
+          -d grant_type=client_credentials \
+          -d "client_id=${TPA_CLIENT_ID}" \
+          -d "client_secret=${TPA_CLIENT_SECRET}" \
+          -d "scope=create:document read:document")"
+        TOKEN="$(python3 -c 'import json,sys; print(json.loads(sys.argv[1]).get("access_token",""))' "${RESP}")"
+        if [ -z "${TOKEN}" ]; then
+          echo "WARN: could not obtain TPA token; leaving SBOM in Quay only"
+          echo "${RESP}" | head -c 400
+          exit 0
+        fi
+        echo "--- POST ${TPA_URL}/api/v3/sbom?format=cyclonedx ---"
+        CODE="$(curl -sk -X POST "${TPA_URL}/api/v3/sbom?format=cyclonedx" \
+          -H "Authorization: Bearer ${TOKEN}" \
+          -H "Content-Type: application/json" \
+          --data-binary @"${SBOM}" \
+          -o /tmp/tpa-out -w "%{http_code}")"
+        echo "HTTP ${CODE}"
+        head -c 800 /tmp/tpa-out || true
+        echo
+        if [ "${CODE}" = "201" ] || [ "${CODE}" = "200" ]; then
+          echo "PASS: SBOM ingested by Trusted Profile Analyzer."
+          echo "Open ${TPA_URL} and search the component name (latest SBOM)."
+        else
+          echo "WARN: TPA returned HTTP ${CODE}. The SBOM is still in Quay (.att) for the demo."
+        fi

@@ -1,0 +1,210 @@
+---
+- name: Read backstage client
+  ansible.builtin.uri:
+    url: "https://{{ keycloak_hostname }}/admin/realms/{{ keycloak_realm }}/clients?clientId={{ keycloak_client_id }}"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ kc_token }}"
+    validate_certs: false
+  register: client_info
+
+- name: Fail if backstage client is missing
+  ansible.builtin.fail:
+    msg: "client {{ keycloak_client_id }} not found in realm {{ keycloak_realm }}"
+  when: client_info.json | length == 0
+
+- name: Rotate backstage client secret
+  ansible.builtin.uri:
+    url: "https://{{ keycloak_hostname }}/admin/realms/{{ keycloak_realm }}/clients/{{ client_info.json[0].id }}/client-secret"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ kc_token }}"
+    status_code: 200
+    return_content: true
+    validate_certs: false
+  register: client_secret_response
+
+- name: Save backstage client secret
+  ansible.builtin.set_fact:
+    backstage_client_secret: "{{ client_secret_response.json.value }}"
+
+# Keycloak GET representations use secret: "**********". Putting that
+# representation back would replace the rotated secret and break Hub login.
+- name: Update backstage redirect URIs
+  ansible.builtin.uri:
+    url: "https://{{ keycloak_hostname }}/admin/realms/{{ keycloak_realm }}/clients/{{ client_info.json[0].id }}"
+    method: PUT
+    headers:
+      Authorization: "Bearer {{ kc_token }}"
+    body: >-
+      {{
+        client_info.json[0]
+        | combine({
+            'redirectUris': [
+              'https://' + rhdh_host + '/*',
+              'https://' + rhdh_host + '/oauth2/callback',
+              'https://' + rhdh_host + '/api/auth/oidc/handler/frame',
+              'https://' + rhdh_host
+            ],
+            'webOrigins': ['+'],
+            'serviceAccountsEnabled': true,
+            'publicClient': false,
+            'directAccessGrantsEnabled': true
+          })
+        | dict2items
+        | rejectattr('key', 'equalto', 'secret')
+        | list
+        | items2dict
+      }}
+    body_format: json
+    status_code: [204, 200]
+    validate_certs: false
+
+- name: Ensure GitLab OIDC client
+  ansible.builtin.uri:
+    url: "https://{{ keycloak_hostname }}/admin/realms/{{ keycloak_realm }}/clients"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ kc_token }}"
+    body:
+      clientId: gitlab
+      name: gitlab
+      enabled: true
+      protocol: openid-connect
+      publicClient: false
+      secret: "{{ lookup('password', '/dev/null length=32 chars=ascii_letters,digits') }}"
+      standardFlowEnabled: true
+      directAccessGrantsEnabled: true
+      redirectUris:
+        - "https://{{ gitlab_host }}/users/auth/openid_connect/callback"
+      webOrigins: ["+"]
+      attributes:
+        "post.logout.redirect.uris": "https://{{ gitlab_host }}/*"
+    body_format: json
+    status_code: [201, 409]
+    validate_certs: false
+  register: gitlab_client_create
+
+- name: Lookup GitLab client
+  ansible.builtin.uri:
+    url: "https://{{ keycloak_hostname }}/admin/realms/{{ keycloak_realm }}/clients?clientId=gitlab"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ kc_token }}"
+    validate_certs: false
+  register: gitlab_client_info
+
+- name: Rotate GitLab client secret
+  ansible.builtin.uri:
+    url: "https://{{ keycloak_hostname }}/admin/realms/{{ keycloak_realm }}/clients/{{ gitlab_client_info.json[0].id }}/client-secret"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ kc_token }}"
+    status_code: 200
+    return_content: true
+    validate_certs: false
+  register: gitlab_secret_response
+
+- name: Save GitLab client secret
+  ansible.builtin.set_fact:
+    gitlab_client_secret: "{{ gitlab_secret_response.json.value }}"
+
+- name: Ensure Fulcio / RHTAS client
+  ansible.builtin.uri:
+    url: "https://{{ keycloak_hostname }}/admin/realms/{{ keycloak_realm }}/clients"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ kc_token }}"
+    body:
+      clientId: trusted-artifact-signer
+      name: trusted-artifact-signer
+      enabled: true
+      protocol: openid-connect
+      publicClient: true
+      standardFlowEnabled: true
+      directAccessGrantsEnabled: true
+      redirectUris:
+        - "*"
+        - "http://localhost:*"
+        - "http://127.0.0.1:*"
+        - "http://localhost:*/auth/callback"
+        - "http://127.0.0.1:*/auth/callback"
+        - "urn:ietf:wg:oauth:2.0:oob"
+        - "urn:ietf:wg:oauth:2.0:oob:auto"
+      webOrigins: ["+"]
+    body_format: json
+    status_code: [201, 409]
+    validate_certs: false
+
+- name: Lookup Fulcio / RHTAS client
+  ansible.builtin.uri:
+    url: "https://{{ keycloak_hostname }}/admin/realms/{{ keycloak_realm }}/clients?clientId=trusted-artifact-signer"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ kc_token }}"
+    validate_certs: false
+  register: tas_client_info
+
+# POST 409 leaves a stale client. gitsign in Dev Spaces cannot open a browser, so
+# it uses the OOB redirect URN; Keycloak 26 treats "*" as http(s) only.
+- name: Update Fulcio / RHTAS redirect URIs
+  ansible.builtin.uri:
+    url: "https://{{ keycloak_hostname }}/admin/realms/{{ keycloak_realm }}/clients/{{ tas_client_info.json[0].id }}"
+    method: PUT
+    headers:
+      Authorization: "Bearer {{ kc_token }}"
+    body: >-
+      {{
+        tas_client_info.json[0]
+        | combine({
+            'redirectUris': [
+              '*',
+              'http://localhost:*',
+              'http://127.0.0.1:*',
+              'http://localhost:*/auth/callback',
+              'http://127.0.0.1:*/auth/callback',
+              'urn:ietf:wg:oauth:2.0:oob',
+              'urn:ietf:wg:oauth:2.0:oob:auto'
+            ],
+            'webOrigins': ['+'],
+            'publicClient': true,
+            'standardFlowEnabled': true,
+            'directAccessGrantsEnabled': true
+          })
+        | dict2items
+        | rejectattr('key', 'equalto', 'secret')
+        | list
+        | items2dict
+      }}
+    body_format: json
+    status_code: [204, 200]
+    validate_certs: false
+
+- name: Store client secrets in the cluster
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: "{{ item.name }}"
+        namespace: "{{ item.ns }}"
+      type: Opaque
+      stringData: "{{ item.data }}"
+  loop:
+    - name: keycloak-client-secret
+      ns: "{{ rhdh_namespace }}"
+      data:
+        clientSecret: "{{ backstage_client_secret }}"
+    - name: gitlab-client-secret
+      ns: "{{ gitlab_namespace }}"
+      data:
+        clientId: gitlab
+        clientSecret: "{{ gitlab_client_secret }}"
+    - name: gitlab-oidc-config
+      ns: "{{ gitlab_namespace }}"
+      data:
+        OIDC_ISSUER: "{{ keycloak_issuer_url }}"
+        OIDC_CLIENT_ID: gitlab
+        OIDC_CLIENT_SECRET: "{{ gitlab_client_secret }}"
+        OIDC_REDIRECT_URI: "https://{{ gitlab_host }}/users/auth/openid_connect/callback"

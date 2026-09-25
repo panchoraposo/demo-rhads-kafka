@@ -1,0 +1,93 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: rhads-sign-image
+  namespace: rhads-ci
+  labels:
+    app.kubernetes.io/part-of: rhads-demo
+spec:
+  params:
+    - name: IMAGE
+      type: string
+    - name: FULCIO_URL
+      type: string
+    - name: REKOR_URL
+      type: string
+    - name: TUF_MIRROR
+      type: string
+      default: ""
+  workspaces:
+    - name: dockerconfig
+      optional: true
+  steps:
+    - name: cosign
+      image: registry.redhat.io/rhtas/cosign-rhel9@sha256:4a1174f4cdc367db08f99ccb9586bf0ff8faa47c3360482b4fb33e75588b53eb
+      env:
+        - name: IMAGE
+          value: $(params.IMAGE)
+        - name: FULCIO_URL
+          value: $(params.FULCIO_URL)
+        - name: REKOR_URL
+          value: $(params.REKOR_URL)
+        - name: COSIGN_YES
+          value: "true"
+        - name: COSIGN_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: cosign-signing-key
+              key: cosign.password
+              optional: true
+      script: |
+        #!/usr/bin/env bash
+        set -euo pipefail
+        echo "============================================================"
+        echo "[SSSC] Sign container image (cosign + Rekor)"
+        echo "Control: nobody can substitute this digest without breaking the signature."
+        echo "Image:  ${IMAGE}"
+        echo "Rekor:  ${REKOR_URL}"
+        echo "Fulcio: ${FULCIO_URL}"
+        echo "============================================================"
+        export HOME=/tekton/home
+        mkdir -p "${HOME}/.docker"
+        if [ -f "$(workspaces.dockerconfig.path)/.dockerconfigjson" ]; then
+          cp "$(workspaces.dockerconfig.path)/.dockerconfigjson" "${HOME}/.docker/config.json"
+        elif [ -f "$(workspaces.dockerconfig.path)/config.json" ]; then
+          cp "$(workspaces.dockerconfig.path)/config.json" "${HOME}/.docker/config.json"
+        fi
+        cosign version || true
+        if [ ! -f /var/run/cosign/cosign.key ]; then
+          echo "FAIL: cosign.key not mounted from secret cosign-signing-key" >&2
+          exit 1
+        fi
+        # Cosign v3 defaults to OCI 1.1 referrers / protobuf bundles. Quay's Tags
+        # view only lists the classic sha256-<digest>.sig tag.
+        if [[ "${IMAGE}" == *@sha256:* ]]; then
+          IMAGE_REF="${IMAGE}"
+        else
+          TRI="$(cosign triangulate --allow-insecure-registry "${IMAGE}")"
+          HEX="${TRI##*:sha256-}"
+          HEX="${HEX%.sig}"
+          IMAGE_REF="${TRI%:*}@sha256:${HEX}"
+        fi
+        echo "Digest ref: ${IMAGE_REF}"
+        echo "--- cosign sign (legacy .sig tag + Rekor) ---"
+        cosign sign --key /var/run/cosign/cosign.key \
+          --yes \
+          --tlog-upload=true \
+          --rekor-url="${REKOR_URL}" \
+          --use-signing-config=false \
+          --new-bundle-format=false \
+          --allow-insecure-registry \
+          "${IMAGE_REF}"
+        echo
+        echo "PASS: signature uploaded. Quay tag: sha256-${IMAGE_REF##*sha256:}.sig"
+        cosign tree --allow-insecure-registry "${IMAGE_REF}" || true
+      volumeMounts:
+        - name: cosign-key
+          mountPath: /var/run/cosign
+          readOnly: true
+  volumes:
+    - name: cosign-key
+      secret:
+        secretName: cosign-signing-key
+        optional: true

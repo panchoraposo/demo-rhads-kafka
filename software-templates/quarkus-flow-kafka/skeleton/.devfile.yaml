@@ -1,0 +1,151 @@
+schemaVersion: 2.2.0
+metadata:
+  name: ${{values.component_id}}
+  displayName: ${{values.component_id}}
+  description: ${{values.description}}
+  tags: [Java, Quarkus, Maven, Flow, Kafka, LangChain4j]
+  projectType: quarkus
+projects:
+  - name: ${{values.component_id}}
+    git:
+      remotes:
+        origin: https://${{values.host}}/${{values.destination}}
+components:
+  - name: tools
+    container:
+      image: registry.redhat.io/devspaces/udi-rhel9:latest
+      memoryLimit: 10Gi
+      memoryRequest: 2Gi
+      cpuLimit: "6"
+      cpuRequest: "1"
+      mountSources: true
+      command:
+        - /bin/bash
+        - -c
+        - |
+          mkdir -p /home/user/.m2
+          (
+            if [ ! -f /home/user/.m2/.rhads-seeded ]; then
+              curl -fsS --retry 8 --max-time 180 \
+                http://nexus.nexus.svc:8081/repository/raw-hosted/rhads/m2-seed.tar.gz \
+                | tar -xz -C /home/user/.m2 \
+                && touch /home/user/.m2/.rhads-seeded
+            fi
+          ) >/tmp/rhads-m2-seed.log 2>&1 &
+          exec sleep infinity
+      endpoints:
+        - name: trip-ui
+          targetPort: 8080
+          exposure: public
+          protocol: https
+          path: /
+          attributes:
+            discoverable: "false"
+            cookiesAuthEnabled: "true"
+            urlRewriteSupported: "true"
+        - name: quarkus-dev-ui
+          targetPort: 8080
+          exposure: internal
+          protocol: https
+          path: /q/dev-ui
+          attributes:
+            discoverable: "false"
+            cookiesAuthEnabled: "true"
+            urlRewriteSupported: "true"
+        - name: swagger-ui
+          targetPort: 8080
+          exposure: internal
+          protocol: https
+          path: /q/swagger-ui
+          attributes:
+            discoverable: "false"
+            cookiesAuthEnabled: "true"
+            urlRewriteSupported: "true"
+      env:
+        - name: MAVEN_OPTS
+          value: "-Xmx2g"
+        - name: MAVEN_ARGS
+          value: "-s .mvn/settings.xml"
+        - name: MAAS_BASE_URL
+          value: ${{values.maas_base_url | dump}}
+        - name: MAAS_MODEL
+          value: ${{values.maas_model | dump}}
+        - name: MAAS_API_KEY
+          value: ${{values.maas_api_key | dump}}
+        - name: KAFKA_BOOTSTRAP_SERVERS
+          value: rhads-kafka-kafka-bootstrap.kafka.svc:9092
+        - name: KAFKA_DEVSERVICES
+          value: "false"
+        - name: GITSIGN_FULCIO_URL
+          value: https://fulcio-server-trusted-artifact-signer.${{values.cluster_subdomain}}
+        - name: GITSIGN_REKOR_URL
+          value: https://rekor-server-trusted-artifact-signer.${{values.cluster_subdomain}}
+        - name: GITSIGN_OIDC_ISSUER
+          value: https://sso.${{values.cluster_subdomain}}/realms/backstage
+        - name: GITSIGN_OIDC_CLIENT_ID
+          value: trusted-artifact-signer
+        - name: GITSIGN_TUF_URL
+          value: https://tuf-trusted-artifact-signer.${{values.cluster_subdomain}}
+        - name: GITSIGN_CERT_IDENTITY
+          value: dev1@rhads.demo
+        - name: CLUSTER_SUBDOMAIN
+          value: ${{values.cluster_subdomain}}
+commands:
+  - id: setup-gitsign
+    exec:
+      label: Configure Sigstore git commit signing (gitsign + RHTAS TUF)
+      component: tools
+      commandLine: bash .devcontainer/setup-gitsign.sh
+      workingDir: ${PROJECT_SOURCE}
+  - id: verify-gitsign
+    exec:
+      label: Verify Sigstore-signed HEAD (gitsign + RHTAS TUF)
+      component: tools
+      commandLine: bash .devcontainer/verify-gitsign.sh
+      workingDir: ${PROJECT_SOURCE}
+  - id: setup-java
+    exec:
+      label: Install JDK 21 (required for quarkus:dev)
+      component: tools
+      commandLine: bash .devcontainer/setup-java.sh
+      workingDir: ${PROJECT_SOURCE}
+  - id: package
+    exec:
+      label: Maven package (Nexus)
+      component: tools
+      commandLine: |
+        set -euo pipefail
+        # shellcheck disable=SC1091
+        . .devcontainer/setup-java.sh
+        ./mvnw -s .mvn/settings.xml -DskipTests package
+      workingDir: ${PROJECT_SOURCE}
+  - id: rhda
+    exec:
+      label: Open pom.xml for Red Hat Dependency Analytics
+      component: tools
+      commandLine: echo "Open pom.xml and run the Red Hat Dependency Analytics (RHDA) command from the VS Code palette."
+      workingDir: ${PROJECT_SOURCE}
+  - id: setup-maas
+    exec:
+      label: Write .env for Red Hat MaaS
+      component: tools
+      commandLine: bash .devcontainer/setup-maas.sh
+      workingDir: ${PROJECT_SOURCE}
+  - id: dev
+    exec:
+      label: Quarkus dev (trip UI + Dev UI on 8080)
+      component: tools
+      commandLine: |
+        set -euo pipefail
+        # shellcheck disable=SC1091
+        . .devcontainer/setup-java.sh
+        bash .devcontainer/setup-maas.sh
+        # Dev Spaces path proxy: /<user>/<workspace>/8080 — Dev UI needs this or assets 404 at /
+        USER_SEG="${DEVWORKSPACE_NAMESPACE%-devspaces}"
+        export QUARKUS_DEV_UI_CONTEXT_ROOT="/${USER_SEG}/${DEVWORKSPACE_NAME}/8080"
+        echo "Dev UI context root: ${QUARKUS_DEV_UI_CONTEXT_ROOT}"
+        echo "Open PORTS → trip-ui / quarkus-dev-ui (or Simple Browser …/8080/q/dev-ui/)."
+        ./mvnw -s .mvn/settings.xml quarkus:dev -Dquarkus.http.host=0.0.0.0 -Dquarkus.http.port=8080 -Dquarkus.test.continuous-testing=disabled -Dquarkus.analytics.disabled=true
+      workingDir: ${PROJECT_SOURCE}
+# postStart is omitted so the IDE becomes ready as soon as the UDI is up.
+# Inner loop: Write .env for Red Hat MaaS → Quarkus dev → open quarkus-dev-ui.

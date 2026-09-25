@@ -1,0 +1,7 @@
+---
+# Hostnames are rendered into the GitLab copy during publish-platform-repo.
+# This task only re-pushes that copy; it never commits in the working tree so
+# the installer stays reusable across sandbox clusters.
+- name: Re-push platform repo after later host discovery
+  ansible.builtin.debug:
+    msg: "Software templates were rendered into GitLab during publish-platform-repo"

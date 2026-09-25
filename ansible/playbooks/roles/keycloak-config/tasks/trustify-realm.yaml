@@ -1,0 +1,126 @@
+---
+- name: Refresh Keycloak admin token
+  ansible.builtin.include_tasks: get-token.yaml
+
+- name: Check trustify realm
+  ansible.builtin.uri:
+    url: "https://{{ keycloak_hostname }}/admin/realms/{{ keycloak_trustify_realm }}"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ kc_token }}"
+    status_code: [200, 404]
+    validate_certs: false
+  register: trustify_exists
+
+- name: Create trustify realm
+  ansible.builtin.uri:
+    url: "https://{{ keycloak_hostname }}/admin/realms"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ kc_token }}"
+    body: "{{ lookup('file', playbook_dir + '/../files/trustify-realm.json') | from_json }}"
+    body_format: json
+    status_code: 201
+    validate_certs: false
+  when: trustify_exists.status == 404
+
+# Keycloak 26 omits `sub` from access tokens unless the `basic`/`openid` scopes
+# exist. TPA decodes the JWT and fails with "missing field 'sub'", which the UI
+# surfaces as "Unable to connect". Re-apply on every install so an older realm
+# is repaired without recreating users or restarting TPA.
+- name: Load trustify realm definition
+  ansible.builtin.set_fact:
+    trustify_realm_def: "{{ lookup('file', playbook_dir + '/../files/trustify-realm.json') | from_json }}"
+
+- name: List trustify client scopes
+  ansible.builtin.uri:
+    url: "https://{{ keycloak_hostname }}/admin/realms/{{ keycloak_trustify_realm }}/client-scopes"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ kc_token }}"
+    status_code: 200
+    validate_certs: false
+  register: trustify_scopes
+
+- name: Create missing trustify client scopes
+  ansible.builtin.uri:
+    url: "https://{{ keycloak_hostname }}/admin/realms/{{ keycloak_trustify_realm }}/client-scopes"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ kc_token }}"
+    body: "{{ item }}"
+    body_format: json
+    status_code: [201, 409]
+    validate_certs: false
+  loop: "{{ trustify_realm_def.clientScopes }}"
+  loop_control:
+    label: "{{ item.name }}"
+  when: item.name not in (trustify_scopes.json | map(attribute='name') | list)
+
+- name: Refresh trustify client scopes
+  ansible.builtin.uri:
+    url: "https://{{ keycloak_hostname }}/admin/realms/{{ keycloak_trustify_realm }}/client-scopes"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ kc_token }}"
+    status_code: 200
+    validate_certs: false
+  register: trustify_scopes
+
+- name: List trustify clients
+  ansible.builtin.uri:
+    url: "https://{{ keycloak_hostname }}/admin/realms/{{ keycloak_trustify_realm }}/clients"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ kc_token }}"
+    status_code: 200
+    validate_certs: false
+  register: trustify_clients
+
+- name: Disable lightweight access tokens on TPA clients
+  ansible.builtin.uri:
+    url: "https://{{ keycloak_hostname }}/admin/realms/{{ keycloak_trustify_realm }}/clients/{{ (trustify_clients.json | selectattr('clientId', 'equalto', item.clientId) | first).id }}"
+    method: PUT
+    headers:
+      Authorization: "Bearer {{ kc_token }}"
+    body: "{{ (trustify_clients.json | selectattr('clientId', 'equalto', item.clientId) | first) | combine({'attributes': ((trustify_clients.json | selectattr('clientId', 'equalto', item.clientId) | first).attributes | default({})) | combine({'client.use.lightweight.access.token.enabled': 'false'})}) }}"
+    body_format: json
+    status_code: [204, 200]
+    validate_certs: false
+  loop: "{{ trustify_realm_def.clients }}"
+  loop_control:
+    label: "{{ item.clientId }}"
+  when: trustify_clients.json | selectattr('clientId', 'equalto', item.clientId) | list | length > 0
+
+- name: Add sub protocol mapper on TPA clients
+  ansible.builtin.uri:
+    url: "https://{{ keycloak_hostname }}/admin/realms/{{ keycloak_trustify_realm }}/clients/{{ (trustify_clients.json | selectattr('clientId', 'equalto', item.clientId) | first).id }}/protocol-mappers/models"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ kc_token }}"
+    body: "{{ item.protocolMappers | first }}"
+    body_format: json
+    status_code: [201, 409]
+    validate_certs: false
+  loop: "{{ trustify_realm_def.clients }}"
+  loop_control:
+    label: "{{ item.clientId }}"
+  when:
+    - item.protocolMappers is defined
+    - trustify_clients.json | selectattr('clientId', 'equalto', item.clientId) | list | length > 0
+
+- name: Assign default client scopes on TPA clients
+  ansible.builtin.uri:
+    url: "https://{{ keycloak_hostname }}/admin/realms/{{ keycloak_trustify_realm }}/clients/{{ (trustify_clients.json | selectattr('clientId', 'equalto', item.0.clientId) | first).id }}/default-client-scopes/{{ (trustify_scopes.json | selectattr('name', 'equalto', item.1) | first).id }}"
+    method: PUT
+    headers:
+      Authorization: "Bearer {{ kc_token }}"
+    status_code: [204, 200]
+    validate_certs: false
+  loop: "{{ trustify_realm_def.clients | subelements('defaultClientScopes') }}"
+  loop_control:
+    label: "{{ item.0.clientId }} {{ item.1 }}"
+  when:
+    - trustify_clients.json | selectattr('clientId', 'equalto', item.0.clientId) | list | length > 0
+    - trustify_scopes.json | selectattr('name', 'equalto', item.1) | list | length > 0
+    - item.1 not in ((trustify_clients.json | selectattr('clientId', 'equalto', item.0.clientId) | first).defaultClientScopes | default([]))

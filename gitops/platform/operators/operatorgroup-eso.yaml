@@ -1,0 +1,11 @@
+apiVersion: operators.coreos.com/v1
+kind: OperatorGroup
+metadata:
+  name: openshift-external-secrets-operator
+  namespace: external-secrets-operator
+  labels:
+    app.kubernetes.io/part-of: rhads-demo
+spec:
+  # Empty list = AllNamespaces so the operator can deploy the operand
+  # into the external-secrets namespace.
+  targetNamespaces: []

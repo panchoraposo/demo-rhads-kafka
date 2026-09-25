@@ -1,0 +1,26 @@
+{{- with .Values.route }}
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  annotations:
+    # HITL can hold POST /car-management/return/{id} for up to 5 minutes.
+    haproxy.router.openshift.io/timeout: "300s"
+  labels:
+    {{- include "quarkus-template.labels" $ | nindent 4 }}
+  name: {{ include "quarkus-template.name" $ }}
+spec:
+  {{- if .host }}
+  host: {{ .host }}
+  {{- end }}
+  {{- if .path }}
+  path: {{ .path }}
+  {{- end }}
+  port:
+    targetPort: {{ $.Values.service.port }}
+  to:
+    kind: Service
+    name: {{ include "quarkus-template.name" $ }}
+  tls:
+    termination: edge
+  wildcardPolicy: None
+{{- end }}

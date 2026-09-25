@@ -1,0 +1,49 @@
+# OCP 4.20+ no longer ships container-build; Dev Spaces / che-code still require
+# SETUID/SETGID + allowPrivilegeEscalation for rootless UDI workspaces.
+# See https://che.eclipseprojects.io/2022/10/10/@mloriedo-building-container-images.html
+apiVersion: security.openshift.io/v1
+kind: SecurityContextConstraints
+metadata:
+  name: container-build
+  labels:
+    app.kubernetes.io/part-of: rhads-demo
+  annotations:
+    kubernetes.io/description: >
+      RHADS Dev Spaces workspace SCC (replaces removed OCP container-build).
+allowHostDirVolumePlugin: false
+allowHostIPC: false
+allowHostNetwork: false
+allowHostPID: false
+allowHostPorts: false
+allowPrivilegeEscalation: true
+allowPrivilegedContainer: false
+allowedCapabilities:
+  - SETUID
+  - SETGID
+defaultAddCapabilities: null
+fsGroup:
+  type: MustRunAs
+priority: 20
+readOnlyRootFilesystem: false
+requiredDropCapabilities:
+  - KILL
+  - MKNOD
+runAsUser:
+  type: MustRunAsRange
+seLinuxContext:
+  type: MustRunAs
+supplementalGroups:
+  type: RunAsAny
+userNamespaceLevel: AllowHostLevel
+users: []
+groups: []
+volumes:
+  - configMap
+  - csi
+  - downwardAPI
+  - emptyDir
+  - ephemeral
+  - image
+  - persistentVolumeClaim
+  - projected
+  - secret

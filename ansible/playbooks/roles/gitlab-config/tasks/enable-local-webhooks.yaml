@@ -1,0 +1,13 @@
+---
+- name: Allow GitLab project webhooks to reach cluster-local services
+  ansible.builtin.shell: |
+    set -euo pipefail
+    oc --context {{ oc_context }} -n {{ gitlab_namespace }} exec deploy/gitlab -c gitlab -- \
+      gitlab-rails runner "s = ApplicationSetting.current; before = s.allow_local_requests_from_web_hooks_and_services; s.update!(allow_local_requests_from_web_hooks_and_services: true) unless before; puts(before ? 'unchanged' : 'changed')"
+  args:
+    executable: /bin/bash
+  register: gitlab_local_webhooks
+  retries: 12
+  delay: 20
+  until: gitlab_local_webhooks.rc == 0
+  changed_when: "'changed' in gitlab_local_webhooks.stdout"

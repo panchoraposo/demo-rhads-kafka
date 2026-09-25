@@ -1,0 +1,98 @@
+# Restarts Developer Hub if OIDC start is stuck at 500 after SSO comes back
+# (Issuer.discover is cached for the lifetime of the Node process).
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: rhads-hub-oidc-watchdog
+  namespace: backstage
+  labels:
+    app.kubernetes.io/part-of: rhads-demo
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: rhads-hub-oidc-watchdog
+  namespace: backstage
+  labels:
+    app.kubernetes.io/part-of: rhads-demo
+rules:
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    resourceNames: ["backstage-developer-hub"]
+    verbs: ["get", "patch"]
+  - apiGroups: ["route.openshift.io"]
+    resources: ["routes"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: rhads-hub-oidc-watchdog
+  namespace: backstage
+  labels:
+    app.kubernetes.io/part-of: rhads-demo
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: rhads-hub-oidc-watchdog
+subjects:
+  - kind: ServiceAccount
+    name: rhads-hub-oidc-watchdog
+    namespace: backstage
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rhads-hub-oidc-watchdog
+  namespace: backstage
+  labels:
+    app.kubernetes.io/part-of: rhads-demo
+    app.kubernetes.io/name: rhads-hub-oidc-watchdog
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: rhads-hub-oidc-watchdog
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: rhads-hub-oidc-watchdog
+        app.kubernetes.io/part-of: rhads-demo
+    spec:
+      serviceAccountName: rhads-hub-oidc-watchdog
+      containers:
+        - name: watchdog
+          image: registry.redhat.io/openshift4/ose-cli:latest
+          env:
+            - name: HOME
+              value: /tmp
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              set -euo pipefail
+              echo "RHADS Hub OIDC watchdog: restart deploy/backstage-developer-hub if oidc/start is 500"
+              while true; do
+                HOST="$(oc get route backstage-developer-hub -o jsonpath='{.spec.host}' 2>/dev/null || true)"
+                if [ -z "${HOST}" ]; then
+                  echo "$(date -u +%H:%M:%S) no Hub route yet"
+                  sleep 20
+                  continue
+                fi
+                CODE="$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 \
+                  "http://backstage-developer-hub.backstage.svc/api/auth/oidc/start?scope=openid%20profile%20email&origin=https://${HOST}&flow=redirect&env=production" \
+                  || true)"
+                echo "$(date -u +%H:%M:%S) oidc_start=${CODE}"
+                if [ "${CODE}" = "500" ]; then
+                  echo "OIDC client is poisoned; restarting backstage-developer-hub"
+                  oc rollout restart deploy/backstage-developer-hub
+                  sleep 180
+                else
+                  sleep 30
+                fi
+              done
+          resources:
+            requests:
+              cpu: 20m
+              memory: 128Mi
+            limits:
+              memory: 256Mi

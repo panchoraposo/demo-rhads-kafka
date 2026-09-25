@@ -1,0 +1,168 @@
+# =============================================================================
+# RHADS software supply chain demo — cluster-agnostic defaults
+# Domain names are discovered at runtime from the OpenShift DNS CR.
+# =============================================================================
+
+# oc_context is discovered from `oc config current-context` unless overridden
+# with -e oc_context=<name>.
+#
+# Pod scheduling: use OpenShift node-role labels only (no kubernetes.io/hostname).
+# Worker-only affinity: node-role.kubernetes.io/worker Exists + control-plane DoesNotExist.
+# PVCs omit storageClassName so they bind the cluster default StorageClass.
+validate_ssl_certs: false
+common_user_password: "backstage"
+
+# Git source used by Argo CD after GitLab is populated. Bootstrap applies
+# manifests from this working tree so the demo can install before the first push.
+git_repo_url: "https://github.com/panchoraposo/demo-rhads-kafka.git"
+git_target_revision: main
+local_repo_path: /tmp/rhads-gitlab-mirror
+gitlab_project_name: rhads-platform
+gitlab_project_path: rhads-platform
+
+# --- OpenShift GitOps ---
+gitops_channel: latest
+gitops_namespace: openshift-gitops
+argocd_controller_sa: openshift-gitops-argocd-application-controller
+output_file: /tmp/gitops-subscription.yaml
+
+# --- Product channels (OpenShift 4.20+, latest GA on this cluster) ---
+# OpenShift GitOps 1.21 · Pipelines 1.23 · RHDH 1.10 · Dev Spaces 3.29
+# RHTAS 1.4.3 · RHTPA 3.1 · RHACS 4.11 · Quay 3.17 · RHBK 26.6
+rhdh_channel: fast
+pipelines_channel: latest
+devspaces_channel: stable
+rhtas_channel: stable
+rhtpa_channel: stable-v3
+rhacs_channel: stable
+quay_channel: stable-3.17
+rhbk_channel: stable-v26.6
+
+# --- GitLab Community (all-in-one image used in the reference demos) ---
+gitlab_namespace: gitlab
+gitlab_release_name: gitlab
+# Official GitLab CE omnibus (latest 19.x patch at the time of this demo).
+# sameersbn/GPTE images stop at 17.x and cannot be upgraded in place to 19.
+gitlab_image: docker.io/gitlab/gitlab-ce:19.3.0-ce.0
+gitlab_root_password: "{{ common_user_password }}"
+gitlab_users_password: "{{ common_user_password }}"
+gitlab_config_root_password: "{{ common_user_password }}"
+gitlab_email_domain: rhads.demo
+pat_name: ansible-rhads-pat
+pat_name_rhdh: ansible-rhads-pat-rhdh
+pat_scopes: ["api", "sudo"]
+# GitLab 17 caps personal/impersonation tokens at ~1 year
+pat_expires_at: ""
+grant_admin_privileges: true
+
+additional_groups:
+  - name: platform-engineers
+    path: platform-engineers
+    visibility: public
+    users:
+      - username: pe1
+        fullName: PlatformEngineer One
+      - username: pe2
+        fullName: PlatformEngineer Two
+      - username: pe3
+        fullName: PlatformEngineer Three
+  - name: developers
+    path: developers
+    visibility: public
+    users:
+      - username: dev1
+        fullName: Developer One
+      - username: dev2
+        fullName: Developer Two
+      - username: dev3
+        fullName: Developer Three
+
+# --- Keycloak / RHBK ---
+# OpenShift console stays on the cluster realm `sso` (workshop IDP `rhbk`).
+# Ansible reuses that Keycloak and only adds realms `backstage` and `trustify`.
+keycloak_namespace: keycloak
+keycloak_realm: backstage
+keycloak_trustify_realm: trustify
+keycloak_client_id: backstage
+keycloak_gitlab_client_id: gitlab
+secret_name: rhbk-tls-secret
+secret_namespace: keycloak
+
+users_developers:
+  - username: dev1
+    email: dev1@rhads.demo
+    first_name: Dev
+    last_name: One
+    password: "{{ common_user_password }}"
+  - username: dev2
+    email: dev2@rhads.demo
+    first_name: Dev
+    last_name: Two
+    password: "{{ common_user_password }}"
+  - username: dev3
+    email: dev3@rhads.demo
+    first_name: Dev
+    last_name: Three
+    password: "{{ common_user_password }}"
+
+users_platform:
+  - username: pe1
+    email: pe1@rhads.demo
+    first_name: Platform-Engineer
+    last_name: One
+    password: "{{ common_user_password }}"
+  - username: pe2
+    email: pe2@rhads.demo
+    first_name: Platform-Engineer
+    last_name: Two
+    password: "{{ common_user_password }}"
+  - username: pe3
+    email: pe3@rhads.demo
+    first_name: Platform-Engineer
+    last_name: Three
+    password: "{{ common_user_password }}"
+
+# --- Developer Hub ---
+rhdh_namespace: backstage
+mcp_token: "rhdh-static-token"
+
+# --- Dev Spaces ---
+devspaces_namespace: openshift-devspaces
+
+# --- Quay ---
+quay_namespace: quay
+quay_admin_user: quayadmin
+quay_admin_password: "{{ common_user_password }}"
+quay_org: rhads
+quay_org_email: quayadmin@rhads.demo
+quay_robot_name: pipeline
+
+# --- Object storage (ODF MCG / NooBaa) ---
+odf_namespace: openshift-storage
+
+# --- RHTAS ---
+rhtas_namespace: trusted-artifact-signer
+rhtas_name: rhads-securesign
+
+# --- TPA ---
+tpa_namespace: trusted-profile-analyzer
+tpa_name: rhads-tpa
+tpa_db_user: tpa
+tpa_db_name: rhtpadb
+tpa_db_password: "tpa-demo-password"
+
+# --- RHACS ---
+acs_namespace: stackrox
+acs_ci_namespace: rhads-ci
+
+# --- Vault + External Secrets ---
+vault_namespace: vault
+eso_operator_namespace: external-secrets-operator
+eso_operand_namespace: external-secrets
+
+# --- Pipelines / environments ---
+pipelines_namespace: rhads-ci
+conforma_policy_name: rhads-slsa
+env_dev: dev
+env_staging: staging
+env_prod: prod

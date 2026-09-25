@@ -1,0 +1,33 @@
+nameOverride: ""
+
+owner: developers
+
+git:
+  host: ""
+  repo: ""
+  branch: main
+  gitopsRepo: ""
+
+image:
+  dockerfile: Dockerfile
+  registry: Quay
+  organization: rhads
+  host: ""
+  name: app
+  namespace: ""
+  tag: latest
+  password: ""
+
+cluster:
+  subdomain: ""
+
+build:
+  language: maven   # maven | npm | go | none
+  cacheSize: 16Gi
+
+# Topology icon written into GitOps values-<env>.yaml (camel | quarkus | nodejs).
+appRuntime: ""
+
+# Optional. When set, the bootstrap Job writes these keys to Vault at
+# secret/apps/{component_id} and External Secrets Operator syncs them.
+maas: {}

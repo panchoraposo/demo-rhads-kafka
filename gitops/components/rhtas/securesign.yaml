@@ -1,0 +1,83 @@
+# OIDC issuer URLs are patched by Ansible once the cluster apps domain is known.
+apiVersion: rhtas.redhat.com/v1alpha1
+kind: Securesign
+metadata:
+  name: rhads-securesign
+  namespace: trusted-artifact-signer
+  labels:
+    app.kubernetes.io/part-of: rhads-demo
+  annotations:
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  rekor:
+    externalAccess:
+      enabled: true
+    rekorSearchUI:
+      enabled: true
+    monitoring:
+      enabled: false
+  trillian:
+    database:
+      create: true
+    monitoring:
+      enabled: false
+  fulcio:
+    externalAccess:
+      enabled: true
+    config:
+      OIDCIssuers:
+        # Developer / gitsign identity (Keycloak). Issuer URL is patched to the
+        # live SSO route by the PostSync job (and by Ansible at install).
+        - ClientID: trusted-artifact-signer
+          Issuer: https://sso.apps.example.com/realms/backstage
+          IssuerURL: https://sso.apps.example.com/realms/backstage
+          Type: email
+        # Tekton Chains keyless: projected SA token audience "sigstore"
+        # (iss https://kubernetes.default.svc).
+        - ClientID: sigstore
+          Issuer: https://kubernetes.default.svc
+          IssuerURL: https://kubernetes.default.svc
+          Type: kubernetes
+    certificate:
+      organizationName: RHADS Demo
+      organizationEmail: security@rhads.demo
+      commonName: fulcio.rhads-demo
+    monitoring:
+      enabled: false
+  tuf:
+    externalAccess:
+      enabled: true
+    keys:
+      - name: rekor.pub
+      - name: ctfe.pub
+      - name: fulcio_v1.crt.pem
+      - name: tsa.certchain.pem
+    pvc:
+      accessModes:
+        - ReadWriteOnce
+      retain: true
+      size: 100Mi
+  ctlog:
+    monitoring:
+      enabled: false
+  tsa:
+    externalAccess:
+      enabled: true
+    monitoring:
+      enabled: false
+    ntpMonitoring:
+      enabled: false
+    signer:
+      certificateChain:
+        rootCA:
+          organizationName: RHADS Demo
+          organizationEmail: security@rhads.demo
+          commonName: tsa.rhads-demo-root
+        intermediateCA:
+          - organizationName: RHADS Demo
+            organizationEmail: security@rhads.demo
+            commonName: tsa.rhads-demo-intermediate
+        leafCA:
+          organizationName: RHADS Demo
+          organizationEmail: security@rhads.demo
+          commonName: tsa.rhads-demo-leaf

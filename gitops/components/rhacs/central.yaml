@@ -1,0 +1,51 @@
+apiVersion: platform.stackrox.io/v1alpha1
+kind: Central
+metadata:
+  name: stackrox-central-services
+  namespace: stackrox
+  labels:
+    app.kubernetes.io/part-of: rhads-demo
+  annotations:
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  central:
+    exposure:
+      route:
+        enabled: true
+        host: acs.CLUSTER_SUBDOMAIN_PLACEHOLDER
+    nodeSelector:
+      node-role.kubernetes.io/worker: ""
+    resources:
+      requests:
+        cpu: 500m
+        memory: 2Gi
+      limits:
+        cpu: "2"
+        memory: 4Gi
+    db:
+      nodeSelector:
+        node-role.kubernetes.io/worker: ""
+      resources:
+        requests:
+          cpu: 500m
+          memory: 1Gi
+        limits:
+          cpu: "1"
+          memory: 2Gi
+  scanner:
+    analyzer:
+      nodeSelector:
+        node-role.kubernetes.io/worker: ""
+      scaling:
+        autoScaling: Disabled
+        replicas: 1
+      resources:
+        requests:
+          cpu: 500m
+          memory: 1500Mi
+        limits:
+          cpu: "2"
+          memory: 4Gi
+    scannerComponent: Enabled
+  scannerV4:
+    scannerComponent: Disabled

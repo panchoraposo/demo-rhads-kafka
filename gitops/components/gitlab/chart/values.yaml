@@ -1,0 +1,124 @@
+# --- GLOBAL SETTINGS ---
+global:
+  hosts:
+    domain: "apps.cluster-htghs.htghs.sandbox440.opentlc.com" # OpenShift domain
+
+  ingress:
+    configureCertmanager: false
+
+  gitaly:
+    enabled: true
+
+  omniauth:
+    enabled: true
+    secret:
+      enabled: true
+      name: gitlab-oidc-config
+
+# --- GITLAB MAIN SETTINGS ---
+gitlab:
+  image: docker.io/gitlab/gitlab-ce:19.3.0-ce.0
+
+  host: "gitlab.apps.cluster-htghs.htghs.sandbox440.opentlc.com"
+  https: true
+
+  certmanager-issuer:
+    email: "gitlab@apps.cluster-htghs.htghs.sandbox440.opentlc.com"
+
+  email:
+    address: "gitlab@apps.cluster-htghs.htghs.sandbox440.opentlc.com"
+    displayName: "GitLab Admin"
+    replyTo: "noreply@apps.cluster-htghs.htghs.sandbox440.opentlc.com"
+  rootEmail: "root@apps.cluster-htghs.htghs.sandbox440.opentlc.com"
+
+  rootPassword: "backstage"
+
+  keyBase:
+    db: "0123456789"
+    otp: "0123456789"
+    secret: "0123456789"
+
+  runner:
+    image: docker.io/gitlab/gitlab-runner:v19.3.0
+    token: pending
+
+  ssh:
+    host: "gitlab.apps.cluster-htghs.htghs.sandbox440.opentlc.com"
+    port: 22
+
+  smtp:
+    enabled: false
+    
+  users:
+    count: 0
+
+  groups:
+    - name: rhdh
+
+  gitlab-shell:
+    enabled: true
+  webservice:
+    ingress:
+      enabled: true
+      annotations:
+        route.openshift.io/termination: "edge"
+        route.openshift.io/insecure-policy: "Redirect"
+      tls:
+        enabled: true
+  gitaly:
+    persistence:
+      enabled: true
+      size: 50Gi
+  unicorn:
+    enabled: true
+    minReplicas: 1
+    resources:
+      requests:
+        cpu: 500m
+        memory: 2G
+  sidekiq:
+    enabled: true
+    minReplicas: 1
+    resources:
+      requests:
+        cpu: 200m
+        memory: 1G
+  redis:
+    enabled: true
+    master:
+      persistence:
+        enabled: true
+        size: 5Gi
+  # Upstream GitLab chart key; keep disabled (object storage is not part of this demo).
+  minio:
+    enabled: false
+
+
+# --- DATABASE SETTINGS ---
+postgresql:
+  dbUser: gitlab
+  dbPassword: passw0rd
+  dbName: gitlab_production
+  persistence:
+    enabled: true
+    size: 10Gi
+
+
+# --- CLUSTER AND ORCHESTRATOR SETTINGS (From your snippet) ---
+cluster:
+  subdomain: "apps.cluster-htghs.htghs.sandbox440.opentlc.com"
+
+orchestrator:
+  namespace: orchestrator
+
+installCertmanager: false
+nginx-ingress:
+  enabled: false
+prometheus:
+  install: false
+grafana:
+  enabled: false
+gitlab-runner:
+  install: false
+registry:
+  enabled: false

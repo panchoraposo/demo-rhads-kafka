@@ -1,0 +1,23 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: rhads-ci
+resources:
+  - namespace.yaml
+  - rbac.yaml
+  - maven-settings.yaml
+  - task-generate-sbom.yaml
+  - task-sign-image.yaml
+  - task-attest-sbom.yaml
+  - task-upload-tpa.yaml
+  - task-acs-scan.yaml
+  - task-acs-check.yaml
+  - task-conforma.yaml
+  - task-update-gitops.yaml
+  - task-gitsign-verify.yaml
+  - task-build-source.yaml
+  - task-openshift-build.yaml
+  - task-gitlab-comment.yaml
+  - task-chains-status.yaml
+  - maven-warm
+  - conforma-policy.yaml
+  - job-enable-chains.yaml

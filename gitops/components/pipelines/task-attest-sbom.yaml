@@ -1,0 +1,83 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: rhads-attest-sbom
+  namespace: rhads-ci
+  labels:
+    app.kubernetes.io/part-of: rhads-demo
+spec:
+  params:
+    - name: IMAGE
+      type: string
+    - name: REKOR_URL
+      type: string
+  workspaces:
+    - name: source
+    - name: dockerconfig
+      optional: true
+  steps:
+    - name: attest
+      image: registry.redhat.io/rhtas/cosign-rhel9@sha256:4a1174f4cdc367db08f99ccb9586bf0ff8faa47c3360482b4fb33e75588b53eb
+      env:
+        - name: IMAGE
+          value: $(params.IMAGE)
+        - name: REKOR_URL
+          value: $(params.REKOR_URL)
+        - name: COSIGN_YES
+          value: "true"
+        - name: COSIGN_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: cosign-signing-key
+              key: cosign.password
+              optional: true
+      script: |
+        #!/usr/bin/env bash
+        set -euo pipefail
+        echo "============================================================"
+        echo "[SSSC] Attest SBOM to the image (in-toto / CycloneDX)"
+        echo "Control: the SBOM is bound to this digest and logged in Rekor."
+        echo "Image: ${IMAGE}"
+        echo "============================================================"
+        export HOME=/tekton/home
+        mkdir -p "${HOME}/.docker"
+        if [ -f "$(workspaces.dockerconfig.path)/.dockerconfigjson" ]; then
+          cp "$(workspaces.dockerconfig.path)/.dockerconfigjson" "${HOME}/.docker/config.json"
+        fi
+        SBOM="$(workspaces.source.path)/sbom/sbom.cdx.json"
+        test -f "${SBOM}" || { echo "FAIL: SBOM missing at ${SBOM}"; exit 1; }
+        echo "SBOM: ${SBOM} ($(wc -c < "${SBOM}") bytes)"
+        if [[ "${IMAGE}" == *@sha256:* ]]; then
+          IMAGE_REF="${IMAGE}"
+        else
+          TRI="$(cosign triangulate --allow-insecure-registry "${IMAGE}")"
+          HEX="${TRI##*:sha256-}"
+          HEX="${HEX%.sig}"
+          IMAGE_REF="${TRI%:*}@sha256:${HEX}"
+        fi
+        echo "Digest ref: ${IMAGE_REF}"
+        echo "--- cosign attest --type cyclonedx (legacy .att tag + Rekor) ---"
+        cosign attest --yes --predicate "${SBOM}" --type cyclonedx \
+          --key /var/run/cosign/cosign.key \
+          --tlog-upload=true \
+          --rekor-url="${REKOR_URL}" \
+          --use-signing-config=false \
+          --new-bundle-format=false \
+          --allow-insecure-registry \
+          "${IMAGE_REF}"
+        echo "--- cosign attach sbom (Quay UI .sbom tag) ---"
+        cosign attach sbom --sbom "${SBOM}" --type cyclonedx \
+          --allow-insecure-registry \
+          "${IMAGE_REF}" || echo "WARN: attach sbom failed (attestation is the source of truth)"
+        echo
+        echo "PASS: SBOM attested. Quay tags: sha256-${IMAGE_REF##*sha256:}.att and .sbom"
+        cosign tree --allow-insecure-registry "${IMAGE_REF}" || true
+      volumeMounts:
+        - name: cosign-key
+          mountPath: /var/run/cosign
+          readOnly: true
+  volumes:
+    - name: cosign-key
+      secret:
+        secretName: cosign-signing-key
+        optional: true

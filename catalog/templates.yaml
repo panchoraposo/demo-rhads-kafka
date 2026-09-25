@@ -1,0 +1,9 @@
+apiVersion: backstage.io/v1alpha1
+kind: Location
+metadata:
+  name: rhads-software-templates
+spec:
+  type: url
+  targets:
+    - ../software-templates/quarkus-flow-kafka/template.yaml
+    - ../software-templates/go-flow-kafka/template.yaml

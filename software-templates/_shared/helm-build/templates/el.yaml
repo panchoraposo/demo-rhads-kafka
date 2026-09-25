@@ -1,0 +1,55 @@
+apiVersion: triggers.tekton.dev/v1beta1
+kind: EventListener
+metadata:
+  name: {{ include "rhads-build.name" . }}-el
+  labels:
+    {{- include "rhads-build.labels" . | nindent 4 }}
+spec:
+  serviceAccountName: pipeline
+  triggers:
+    - name: push-main
+      interceptors:
+        - ref: { kind: ClusterInterceptor, name: cel }
+          params:
+            - name: filter
+              value: "body.object_kind == 'push' && body.ref == 'refs/heads/main'"
+      bindings:
+        - ref: {{ include "rhads-build.name" . }}-commit
+      template:
+        ref: {{ include "rhads-build.name" . }}-build
+    - name: tag-staging
+      interceptors:
+        - ref: { kind: ClusterInterceptor, name: cel }
+          params:
+            - name: filter
+              value: "body.object_kind == 'tag_push' && body.checkout_sha != ''"
+      bindings:
+        - ref: {{ include "rhads-build.name" . }}-tag
+      template:
+        ref: {{ include "rhads-build.name" . }}-promote-staging
+    - name: release-prod
+      interceptors:
+        - ref: { kind: ClusterInterceptor, name: cel }
+          params:
+            - name: filter
+              value: "body.object_kind == 'release' && body.action == 'create'"
+      bindings:
+        - ref: {{ include "rhads-build.name" . }}-release
+      template:
+        ref: {{ include "rhads-build.name" . }}-promote-prod
+---
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: {{ include "rhads-build.name" . }}-el
+  labels:
+    {{- include "rhads-build.labels" . | nindent 4 }}
+spec:
+  to:
+    kind: Service
+    name: el-{{ include "rhads-build.name" . }}-el
+  port:
+    targetPort: http-listener
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect

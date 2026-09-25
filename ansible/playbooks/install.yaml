@@ -1,0 +1,24 @@
+- hosts: localhost
+  gather_facts: false
+  vars_files:
+    - ../vars/demo.yaml
+  roles:
+    - role: openshift-config
+    - role: gitops-config
+    - role: gitops-bootstrap
+    - role: keycloak-config
+    - role: gitops-deploy-gitlab
+    - role: gitlab-config
+    - role: quay-config
+    - role: rhtas-config
+    - role: tpa-config
+    - role: acs-config
+    - role: vault-config
+    - role: rhdh-config
+    - role: dashboard
+  post_tasks:
+    - name: Keep OpenShift console on the cluster SSO realm
+      ansible.builtin.include_role:
+        name: openshift-config
+        tasks_from: restore-oauth.yaml
+        allow_duplicates: true

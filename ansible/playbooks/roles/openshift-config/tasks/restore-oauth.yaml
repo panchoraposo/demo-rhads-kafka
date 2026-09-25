@@ -1,0 +1,22 @@
+---
+- name: Read live OpenShift OAuth identity providers
+  kubernetes.core.k8s_info:
+    api_version: config.openshift.io/v1
+    kind: OAuth
+    name: cluster
+  register: oauth_live
+  failed_when: false
+
+- name: Restore OpenShift OAuth identity providers if they drifted
+  kubernetes.core.k8s:
+    state: patched
+    api_version: config.openshift.io/v1
+    kind: OAuth
+    name: cluster
+    definition:
+      spec:
+        identityProviders: "{{ oauth_identity_providers }}"
+  when:
+    - oauth_identity_providers | default([]) | length > 0
+    - oauth_live.resources | default([]) | length > 0
+    - oauth_live.resources[0].spec.identityProviders | default([]) != oauth_identity_providers

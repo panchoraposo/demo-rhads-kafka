@@ -1,0 +1,80 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "quarkus-template.name" . }}
+  labels:
+    {{- include "quarkus-template.labels" . | nindent 4 }}
+spec:
+  strategy:
+    type: Recreate
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "quarkus-template.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        rhads.demo/image-tag: {{ .Values.image.tag | default "unknown" | quote }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "quarkus-template.selectorLabels" . | nindent 8 }}
+        {{- include "backstage.labels" . | nindent 8 }}
+        app.openshift.io/runtime: {{ .Values.runtime | default "quarkus" }}
+    spec:
+      serviceAccountName: {{ include "quarkus-template.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: {{ .Values.runtime | default "quarkus" }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: {{ include "quarkus-template.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env:
+            - name: QUARKUS_HTTP_CORS_ENABLED
+              value: "true"
+            - name: QUARKUS_HTTP_CORS_ORIGINS
+              value: "/.*/"
+            - name: QUARKUS_HTTP_CORS_METHODS
+              value: "GET,HEAD,POST,PUT,DELETE,PATCH,OPTIONS"
+            - name: JAVA_TOOL_OPTIONS
+              value: "-Dfile.encoding=UTF-8 -Dsun.stdout.encoding=UTF-8 -Dsun.stderr.encoding=UTF-8"
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              value: {{ .Values.kafka.bootstrapServers | default "rhads-kafka-kafka-bootstrap.kafka.svc:9092" | quote }}
+            - name: QUARKUS_PROFILE
+              value: prod
+          envFrom:
+            - secretRef:
+                name: {{ include "quarkus-template.name" . }}-maas
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.port }}
+              protocol: TCP
+          livenessProbe:
+            {{- toYaml .Values.livenessProbe | nindent 12 }}
+          readinessProbe:
+            {{- toYaml .Values.readinessProbe | nindent 12 }}
+          startupProbe:
+            httpGet:
+              path: /q/health/live
+              port: http
+            failureThreshold: 24
+            periodSeconds: 5
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

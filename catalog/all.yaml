@@ -1,0 +1,11 @@
+apiVersion: backstage.io/v1alpha1
+kind: Location
+metadata:
+  name: rhads-catalog
+  description: Software templates and systems for the RHADS supply-chain demo
+spec:
+  type: url
+  targets:
+    - ./templates.yaml
+    - ./system.yaml
+    - ./users.yaml

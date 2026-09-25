@@ -1,0 +1,44 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - namespace-pipelines.yaml
+  - namespace-rhdh.yaml
+  - namespace-devspaces.yaml
+  - namespace-keycloak.yaml
+  - namespace-quay.yaml
+  - namespace-rhtas.yaml
+  - namespace-rhtpa.yaml
+  - namespace-rhacs.yaml
+  - namespace-odf.yaml
+  - namespace-ci.yaml
+  - namespace-eso.yaml
+  - namespace-kafka.yaml
+  - namespace-kafka-console.yaml
+  - namespace-coo.yaml
+  - operatorgroup-eso.yaml
+  - subscription-eso.yaml
+  # OwnNamespace operators
+  # External Secrets Operator for Red Hat OpenShift (stable-v1) is installed
+  # in external-secrets-operator; the operand runs in external-secrets.
+  # RHBK OperatorGroup + Subscription stay out of this kustomization.
+  # Workshop clusters already run Keycloak (realm `sso`) for OpenShift login;
+  # Ansible installs RHBK only when that SSO is absent.
+  - operatorgroup-quay.yaml
+  - operatorgroup-rhtpa.yaml
+  - operatorgroup-kafka-console.yaml
+  - operatorgroup-coo.yaml
+  # ODF OperatorGroup + odf-operator Subscription stay out of this kustomization.
+  # Workshop clusters already run external ODF; Ansible installs ODF only when absent.
+  # AllNamespaces operators (RHDH, RHTAS, RHACS, Pipelines, Dev Spaces, AMQ Streams)
+  # subscribe in openshift-operators — do not create namespaced OperatorGroups.
+  - subscription-pipelines.yaml
+  - subscription-rhdh.yaml
+  - subscription-devworkspace.yaml
+  - subscription-devspaces.yaml
+  - subscription-quay.yaml
+  - subscription-rhtas.yaml
+  - subscription-rhtpa.yaml
+  - subscription-rhacs.yaml
+  - subscription-amq-streams.yaml
+  - subscription-amq-streams-console.yaml
+  - subscription-coo.yaml

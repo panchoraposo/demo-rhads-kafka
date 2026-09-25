@@ -1,0 +1,15 @@
+---
+- name: "Wait for CSV matching '{{ csv.match }}' in {{ csv.ns }}"
+  kubernetes.core.k8s_info:
+    api_version: operators.coreos.com/v1alpha1
+    kind: ClusterServiceVersion
+    namespace: "{{ csv.ns }}"
+  register: csv_list
+  until: >
+    csv_list.resources
+    | selectattr('metadata.name', 'search', csv.match)
+    | selectattr('status.phase', 'defined')
+    | selectattr('status.phase', 'equalto', 'Succeeded')
+    | list | length > 0
+  retries: 60
+  delay: 15

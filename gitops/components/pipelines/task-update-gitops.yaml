@@ -1,0 +1,127 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: rhads-update-gitops
+  namespace: rhads-ci
+  labels:
+    app.kubernetes.io/part-of: rhads-demo
+spec:
+  params:
+    - name: GITOPS_REPO
+      type: string
+    - name: GITOPS_REVISION
+      type: string
+      default: main
+    - name: IMAGE
+      type: string
+    - name: IMAGE_TAG
+      type: string
+    - name: OVERLAY
+      type: string
+      description: Environment overlay directory (dev, staging, prod)
+    - name: COMPONENT
+      type: string
+    - name: RUNTIME
+      type: string
+      default: ""
+      description: OpenShift / Developer Hub Topology runtime icon (camel, quarkus, nodejs)
+  workspaces:
+    - name: source
+  steps:
+    - name: bump-tag
+      image: registry.redhat.io/openshift4/ose-cli@sha256:69762925e16053d77685ff3a08b3b45dd2bfa5d68277851bc6969b368bbd0cb9
+      env:
+        - name: GITOPS_REPO
+          value: $(params.GITOPS_REPO)
+        - name: GITOPS_REVISION
+          value: $(params.GITOPS_REVISION)
+        - name: IMAGE
+          value: $(params.IMAGE)
+        - name: IMAGE_TAG
+          value: $(params.IMAGE_TAG)
+        - name: OVERLAY
+          value: $(params.OVERLAY)
+        - name: COMPONENT
+          value: $(params.COMPONENT)
+        - name: RUNTIME
+          value: $(params.RUNTIME)
+        - name: HOME
+          value: /tekton/home
+        - name: GIT_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: gitlab-token
+              key: token
+              optional: true
+      script: |
+        #!/usr/bin/env bash
+        set -euo pipefail
+        echo "============================================================"
+        echo "[SSSC] GitOps promotion (${OVERLAY})"
+        echo "Control: only this pipeline writes the image digest into the GitOps repo;"
+        echo "         Argo CD then reconciles the environment. Humans promote via GitLab"
+        echo "         tag (staging) or release (prod), not by editing cluster YAML."
+        echo "Overlay: ${OVERLAY}"
+        echo "Image:   ${IMAGE}"
+        echo "Tag:     ${IMAGE_TAG}"
+        echo "GitOps:  ${GITOPS_REPO}"
+        echo "============================================================"
+        if ! command -v git >/dev/null 2>&1; then
+          echo "Installing git-core..."
+          microdnf -y install git-core >/dev/null || yum -y install git-core >/dev/null
+        fi
+        echo "tools: git=$(git --version | awk '{print $3}')"
+        git config --global user.email "pipelines@rhads.demo"
+        git config --global user.name "RHADS Pipelines"
+        git config --global http.sslVerify false
+        DEST="$(workspaces.source.path)/gitops"
+        AUTH_REPO="${GITOPS_REPO}"
+        if [ -n "${GIT_TOKEN:-}" ]; then
+          AUTH_REPO="$(echo "${GITOPS_REPO}" | sed "s#https://#https://oauth2:${GIT_TOKEN}@#")"
+        else
+          echo "FAIL: gitlab-token secret is missing; cannot push GitOps" >&2
+          exit 1
+        fi
+        rm -rf "${DEST}"
+        git clone --branch "${GITOPS_REVISION}" "${AUTH_REPO}" "${DEST}"
+        FILE="${DEST}/overlays/${OVERLAY}/kustomization.yaml"
+        if [ ! -f "${FILE}" ]; then
+          FILE="${DEST}/helm/app/values-${OVERLAY}.yaml"
+        fi
+        if [ ! -f "${FILE}" ]; then
+          echo "No overlay file found, writing values-${OVERLAY}.yaml"
+          mkdir -p "${DEST}/helm/app"
+          FILE="${DEST}/helm/app/values-${OVERLAY}.yaml"
+        fi
+        echo "--- writing ${FILE} ---"
+        {
+          echo "image:"
+          echo "  tag: \"${IMAGE_TAG}\""
+          echo "  digestRef: \"${IMAGE}\""
+          echo "environment: \"${OVERLAY}\""
+          echo "replicaCount: 1"
+          if [ -n "${RUNTIME:-}" ]; then
+            echo "runtime: ${RUNTIME}"
+          fi
+        } > "${FILE}"
+        cat "${FILE}"
+        cd "${DEST}"
+        git add -A
+        if git diff --cached --quiet; then
+          echo "PASS: GitOps already points at ${IMAGE} (${OVERLAY})"
+          exit 0
+        fi
+        git commit -m "promote ${COMPONENT} to ${OVERLAY} tag ${IMAGE_TAG}"
+        git push origin "HEAD:${GITOPS_REVISION}"
+        echo
+        echo "PASS: GitOps ${OVERLAY} now references ${IMAGE}."
+        # Kick Argo CD immediately so Topology/CD update without waiting for the poll interval.
+        APP="${COMPONENT}-${OVERLAY}"
+        if oc -n openshift-gitops get application "${APP}" >/dev/null 2>&1; then
+          oc -n openshift-gitops annotate application "${APP}" \
+            argocd.argoproj.io/refresh=hard --overwrite >/dev/null || true
+          echo "Triggered Argo CD hard refresh for application/${APP}."
+        else
+          echo "WARN: application/${APP} not found in openshift-gitops yet (bootstrap may still be syncing)."
+        fi
+        echo "Argo CD will sync the ${OVERLAY} namespace."

@@ -1,0 +1,126 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: rhads-patch-rhda
+  labels:
+    app.kubernetes.io/part-of: rhads-demo
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: rhads-patch-rhda
+  labels:
+    app.kubernetes.io/part-of: rhads-demo
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "create", "patch", "update"]
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "patch", "update"]
+  - apiGroups: ["route.openshift.io"]
+    resources: ["routes"]
+    verbs: ["get", "list", "patch", "update"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingresses"]
+    verbs: ["get", "list", "patch", "update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: rhads-patch-rhda
+  labels:
+    app.kubernetes.io/part-of: rhads-demo
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: rhads-patch-rhda
+subjects:
+  - kind: ServiceAccount
+    name: rhads-patch-rhda
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: rhads-patch-rhda-ingress
+  labels:
+    app.kubernetes.io/part-of: rhads-demo
+rules:
+  - apiGroups: ["config.openshift.io"]
+    resources: ["ingresses"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: rhads-patch-rhda-ingress
+  labels:
+    app.kubernetes.io/part-of: rhads-demo
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: rhads-patch-rhda-ingress
+subjects:
+  - kind: ServiceAccount
+    name: rhads-patch-rhda
+    namespace: trusted-profile-analyzer
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: rhads-patch-rhda-oidc
+  labels:
+    app.kubernetes.io/part-of: rhads-demo
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    argocd.argoproj.io/sync-wave: "20"
+    argocd.argoproj.io/sync-options: Replace=true
+spec:
+  backoffLimit: 8
+  ttlSecondsAfterFinished: 600
+  template:
+    spec:
+      restartPolicy: OnFailure
+      serviceAccountName: rhads-patch-rhda
+      containers:
+        - name: patch
+          image: registry.redhat.io/openshift4/ose-cli:latest
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              set -euo pipefail
+              DOMAIN="$(oc get ingresses.config.openshift.io cluster -o jsonpath='{.spec.domain}')"
+              ISSUER="https://sso.${DOMAIN}/realms/trustify"
+              TPA="https://server.${DOMAIN}"
+              echo "RHDA backend OIDC issuer: ${ISSUER}"
+              oc -n trusted-profile-analyzer create secret generic rhda-backend-oidc \
+                --from-literal=rhtpa.auth.server.url="${ISSUER}" \
+                --from-literal=branding.explore.url="${TPA}/search" \
+                --dry-run=client -o yaml | oc apply -f -
+              oc -n trusted-profile-analyzer label secret rhda-backend-oidc app=rhda-backend --overwrite
+              oc -n trusted-profile-analyzer annotate secret rhda-backend-oidc \
+                argocd.argoproj.io/compare-options=IgnoreExtraneous --overwrite
+              oc -n trusted-profile-analyzer rollout restart deploy/rhda-backend || true
+              echo "PASS: RHDA backend authenticates to TPA via realm trustify"
+              # Operator creates Ingress/server; OpenShift then mints route/server-*.
+              # Default HAProxy timeout is 30s; fetch_sbom_summary after a large
+              # ingest can exceed that and the SPOG UI shows a generic Error.
+              for i in $(seq 1 30); do
+                if oc -n trusted-profile-analyzer get ingress server >/dev/null 2>&1; then
+                  break
+                fi
+                sleep 5
+              done
+              oc -n trusted-profile-analyzer annotate ingress server \
+                --overwrite \
+                haproxy.router.openshift.io/timeout=90s \
+                argocd.argoproj.io/compare-options=IgnoreExtraneous || true
+              ROUTE="$(oc -n trusted-profile-analyzer get route -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' | awk '/^server/{print; exit}')"
+              if [ -n "${ROUTE}" ]; then
+                oc -n trusted-profile-analyzer annotate route "${ROUTE}" \
+                  --overwrite \
+                  haproxy.router.openshift.io/timeout=90s \
+                  argocd.argoproj.io/compare-options=IgnoreExtraneous || true
+              fi
+              echo "PASS: TPA server timeout=90s (ingress/server route=${ROUTE:-none})"

@@ -1,0 +1,7 @@
+{
+  "recommendations": [
+    "redhat.fabric8-analytics",
+    "redhat.java",
+    "redhat.vscode-quarkus"
+  ]
+}

@@ -1,0 +1,6 @@
+---
+- name: Process each group
+  ansible.builtin.include_tasks: add-users-to-group.yaml
+  loop: "{{ additional_groups }}"
+  loop_control:
+    loop_var: current_group_data
