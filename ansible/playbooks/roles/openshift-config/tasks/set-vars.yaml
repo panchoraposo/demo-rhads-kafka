@@ -47,6 +47,7 @@
     acs_host: "acs.apps.{{ dns_config.resources[0].spec.baseDomain }}"
     nexus_host: "nexus.apps.{{ dns_config.resources[0].spec.baseDomain }}"
     vault_host: "vault.apps.{{ dns_config.resources[0].spec.baseDomain }}"
+    apicurio_host: "apicurio.apps.{{ dns_config.resources[0].spec.baseDomain }}"
     tpa_app_domain: ".apps.{{ dns_config.resources[0].spec.baseDomain }}"
     repo_root: "{{ playbook_dir }}/../.."
 

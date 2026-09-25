@@ -45,7 +45,7 @@ function safeMessage(data, fallback, httpStatus) {
     const expected = {
         invalid_request: 400, invalid_decision: 400, unknown_trip: 404,
         decision_not_pending: 409, guardrail_violation: 422, quality_not_met: 422,
-        planning_failed: 500, finalization_failed: 500, wait_interrupted: 503, planning_timeout: 504
+        maas_api_key_missing: 500, planning_failed: 500, finalization_failed: 500, wait_interrupted: 503, planning_timeout: 504
     }[data?.error];
     const matches = expected && (httpStatus === undefined || httpStatus === expected
         || (httpStatus === 200 && isEnvelope(data) && data.status === "failed" && [422, 500].includes(expected)));

@@ -1,0 +1,4 @@
+image:
+  tag: pending-promotion
+environment: staging
+replicaCount: 0

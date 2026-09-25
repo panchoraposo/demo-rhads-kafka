@@ -3,11 +3,11 @@ openapi: 3.0.3
 info:
   title: ${{values.component_id}} API
   version: 1.0-SNAPSHOT
-  description: Agentic Trip Planner — Quarkus Flow + Kafka HITL
+  description: Agentic Trip Planner — LangChain4j + Kafka HITL
 paths:
   /trip/plan:
     post:
-      summary: Start trip planning (Flow emits Kafka events; may pause for approval)
+      summary: Start trip planning (publishes to Kafka; may pause for approval)
       responses:
         "200":
           description: Plan result or pending approval payload
@@ -36,7 +36,7 @@ paths:
           description: OK
   /trip/approve:
     put:
-      summary: Approve or reject a pending trip (resumes Flow via Kafka)
+      summary: Approve or reject a pending trip (resumes via Kafka)
       responses:
         "200":
           description: OK

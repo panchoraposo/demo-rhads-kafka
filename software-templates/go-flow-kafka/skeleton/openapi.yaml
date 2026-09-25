@@ -1,18 +1,48 @@
+---
 openapi: 3.0.3
 info:
-  title: ${{values.component_id}} Trip Planner
-  version: 1.0.0
-  description: ${{values.description}}
+  title: ${{values.component_id}} API
+  version: 1.0-SNAPSHOT
+  description: Agentic Trip Planner — Go + Kafka HITL (same contract as Quarkus LangChain4j)
 paths:
   /trip/plan:
     post:
-      summary: Start trip planning (waits for awaiting_approval)
-  /trip/approve:
-    put:
-      summary: Approve or reject a pending trip
+      summary: Start trip planning (publishes to Kafka; may pause for approval)
+      responses:
+        "200":
+          description: Plan result or pending approval payload
+        "500":
+          description: Planning failed
   /trip/plan/status:
     get:
-      summary: Trip status by instanceId or requestId
+      summary: Poll plan status by instanceId or requestId
+      parameters:
+        - name: instanceId
+          in: query
+          schema:
+            type: string
+        - name: requestId
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
   /trip/plan/latest:
     get:
-      summary: Latest trip (browser refresh)
+      summary: Latest plan snapshot
+      responses:
+        "200":
+          description: OK
+  /trip/approve:
+    put:
+      summary: Approve or reject a pending trip (resumes via Kafka)
+      responses:
+        "202":
+          description: Decision accepted
+  /q/health/live:
+    get:
+      summary: Liveness
+      responses:
+        "200":
+          description: OK

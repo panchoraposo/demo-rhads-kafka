@@ -1,0 +1,202 @@
+apiVersion: triggers.tekton.dev/v1beta1
+kind: TriggerTemplate
+metadata:
+  name: {{ include "rhads-build.name" . }}-build
+spec:
+  params:
+    - name: git-revision
+    - name: git-repo-url
+    - name: image-tag
+  resourcetemplates:
+    - apiVersion: tekton.dev/v1
+      kind: PipelineRun
+      metadata:
+        generateName: {{ include "rhads-build.name" . }}-build-
+        labels:
+          backstage.io/kubernetes-id: {{ include "rhads-build.name" . }}
+          tekton.dev/pipeline: {{ include "rhads-build.name" . }}-build
+      spec:
+        pipelineRef:
+          name: {{ include "rhads-build.name" . }}-build
+        ttlSecondsAfterFinished: 14400
+        # Tekton 1.16+/Pipelines 1.23 dropped spec.serviceAccountName and spec.podTemplate
+        # on PipelineRun. emptyDir workspaces are per-TaskRun, so source must be a PVC.
+        taskRunTemplate:
+          serviceAccountName: pipeline
+          podTemplate:
+            securityContext:
+              fsGroup: 65532
+            affinity:
+              {{- include "rhads.workerNodeAffinity" . | nindent 14 }}
+        taskRunSpecs:
+          - pipelineTaskName: generate-sbom
+            metadata:
+              annotations:
+                task.output.location: results
+                task.results.format: application/text
+                task.results.type: external-link
+                task.results.key: LINK_TO_SBOM
+          - pipelineTaskName: acs-scan
+            metadata:
+              annotations:
+                task.results.format: application/json
+                task.results.type: roxctl-image-scan
+                task.results.key: SCAN_OUTPUT
+                task.output.location: logs
+                task.results.container: step-report
+          - pipelineTaskName: acs-check
+            metadata:
+              annotations:
+                task.results.format: application/json
+                task.results.type: roxctl-image-check
+                task.results.key: SCAN_OUTPUT
+                task.output.location: logs
+                task.results.container: step-report
+          - pipelineTaskName: conforma-dev
+            metadata:
+              annotations:
+                task.results.format: application/json
+                task.results.type: ec
+                task.output.location: logs
+                task.results.container: step-report-json
+        params:
+          - { name: source-repo, value: $(tt.params.git-repo-url) }
+          - { name: source-branch, value: $(tt.params.git-revision) }
+          - { name: image-tag, value: $(tt.params.image-tag) }
+          - { name: output-image, value: {{ include "image.dev-url" . | quote }} }
+          - { name: gitops-repo, value: {{ .Values.git.gitopsRepo | quote }} }
+          - { name: component-id, value: {{ include "rhads-build.name" . | quote }} }
+        # Single RWO PVC: git checkout at source/, Maven/npm cache beside it.
+        # Two PVCs on one TaskRun fail on this cluster (coschedule/workspaces).
+        workspaces:
+          - name: source-folder
+            persistentVolumeClaim:
+              claimName: {{ include "rhads-build.name" . }}-build-cache
+          - name: maven-settings
+            configMap:
+              name: rhads-maven-settings
+          - name: docker-config
+            secret:
+              secretName: quay-dockerconfig
+---
+apiVersion: triggers.tekton.dev/v1beta1
+kind: TriggerTemplate
+metadata:
+  name: {{ include "rhads-build.name" . }}-promote-staging
+spec:
+  params:
+    - name: image-tag
+    - name: git-repo-url
+    - name: git-ref
+  resourcetemplates:
+    - apiVersion: tekton.dev/v1
+      kind: PipelineRun
+      metadata:
+        generateName: {{ include "rhads-build.name" . }}-staging-
+        labels:
+          backstage.io/kubernetes-id: {{ include "rhads-build.name" . }}
+      spec:
+        pipelineRef:
+          name: {{ include "rhads-build.name" . }}-promote
+        ttlSecondsAfterFinished: 14400
+        taskRunTemplate:
+          serviceAccountName: pipeline
+          podTemplate:
+            securityContext:
+              fsGroup: 65532
+            affinity:
+              {{- include "rhads.workerNodeAffinity" . | nindent 14 }}
+        taskRunSpecs:
+          - pipelineTaskName: acs-check
+            metadata:
+              annotations:
+                task.results.format: application/json
+                task.results.type: roxctl-image-check
+                task.results.key: SCAN_OUTPUT
+                task.output.location: logs
+                task.results.container: step-report
+          - pipelineTaskName: conforma
+            metadata:
+              annotations:
+                task.results.format: application/json
+                task.results.type: ec
+                task.output.location: logs
+                task.results.container: step-report-json
+        params:
+          - { name: image-tag, value: $(tt.params.image-tag) }
+          - { name: overlay, value: staging }
+          - { name: strict, value: "true" }
+          - { name: output-image, value: {{ include "image.dev-url" . | quote }} }
+          - { name: gitops-repo, value: {{ .Values.git.gitopsRepo | quote }} }
+          - { name: source-repo, value: $(tt.params.git-repo-url) }
+          - { name: git-ref, value: $(tt.params.git-ref) }
+          - { name: component-id, value: {{ include "rhads-build.name" . | quote }} }
+        workspaces:
+          - name: source-folder
+            volumeClaimTemplate:
+              spec:
+                accessModes: ["ReadWriteOnce"]
+                resources:
+                  requests:
+                    storage: 1Gi
+---
+apiVersion: triggers.tekton.dev/v1beta1
+kind: TriggerTemplate
+metadata:
+  name: {{ include "rhads-build.name" . }}-promote-prod
+spec:
+  params:
+    - name: image-tag
+    - name: git-repo-url
+    - name: git-ref
+  resourcetemplates:
+    - apiVersion: tekton.dev/v1
+      kind: PipelineRun
+      metadata:
+        generateName: {{ include "rhads-build.name" . }}-prod-
+        labels:
+          backstage.io/kubernetes-id: {{ include "rhads-build.name" . }}
+      spec:
+        pipelineRef:
+          name: {{ include "rhads-build.name" . }}-promote
+        ttlSecondsAfterFinished: 14400
+        taskRunTemplate:
+          serviceAccountName: pipeline
+          podTemplate:
+            securityContext:
+              fsGroup: 65532
+            affinity:
+              {{- include "rhads.workerNodeAffinity" . | nindent 14 }}
+        taskRunSpecs:
+          - pipelineTaskName: acs-check
+            metadata:
+              annotations:
+                task.results.format: application/json
+                task.results.type: roxctl-image-check
+                task.results.key: SCAN_OUTPUT
+                task.output.location: logs
+                task.results.container: step-report
+          - pipelineTaskName: conforma
+            metadata:
+              annotations:
+                task.results.format: application/json
+                task.results.type: ec
+                task.output.location: logs
+                task.results.container: step-report-json
+        params:
+          - { name: image-tag, value: $(tt.params.image-tag) }
+          - { name: overlay, value: prod }
+          - { name: strict, value: "true" }
+          - { name: output-image, value: {{ include "image.dev-url" . | quote }} }
+          - { name: gitops-repo, value: {{ .Values.git.gitopsRepo | quote }} }
+          - { name: source-repo, value: $(tt.params.git-repo-url) }
+          - { name: git-ref, value: $(tt.params.git-ref) }
+          - { name: component-id, value: {{ include "rhads-build.name" . | quote }} }
+        workspaces:
+          - name: source-folder
+            volumeClaimTemplate:
+              spec:
+                accessModes: ["ReadWriteOnce"]
+                resources:
+                  requests:
+                    storage: 1Gi

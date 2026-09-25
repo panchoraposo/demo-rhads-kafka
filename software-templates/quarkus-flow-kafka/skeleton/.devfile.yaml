@@ -3,7 +3,7 @@ metadata:
   name: ${{values.component_id}}
   displayName: ${{values.component_id}}
   description: ${{values.description}}
-  tags: [Java, Quarkus, Maven, Flow, Kafka, LangChain4j]
+  tags: [Java, Quarkus, Maven, Kafka, LangChain4j]
   projectType: quarkus
 projects:
   - name: ${{values.component_id}}

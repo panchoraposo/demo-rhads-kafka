@@ -154,6 +154,25 @@ kubernetes:
 quay:
   uiUrl: ${QUAY_UI_URL}
 
+vault:
+  baseUrl: http://vault.vault.svc:8200
+  publicUrl: https://vault.${OPENSHIFT_CLUSTER_INGRESS_DOMAIN}
+  auth:
+    type: static
+    secret: ${VAULT_TOKEN}
+  secretEngine: secret
+  kvVersion: 2
+
+# Apicurio Registry — schemas for Kafka / CDC apps (links + API entities in catalog).
+proxy:
+  endpoints:
+    apicurio:
+      target: https://apicurio.${OPENSHIFT_CLUSTER_INGRESS_DOMAIN}
+      changeOrigin: true
+      secure: false
+      headers:
+        X-Api-Key: ${APICURIO_API_KEY:-}
+
 techdocs:
   builder: local
   generator:
@@ -167,3 +186,4 @@ enabled:
   argocd: true
   quay: true
   gitlab: true
+  vault: true

@@ -3,13 +3,14 @@ kind: Template
 metadata:
   name: go-flow-kafka
   title: Agentic Trip Planner — Go/Kafka
-  description: "Go trip planner with the same Kafka CloudEvents HITL flow as Quarkus Flow. Community Go modules + community container bases (Debian) for RHDA/TPA/ACS CVEs; switch to Dockerfile.ubi (Red Hat UBI) to compare."
+  description: "Go trip planner with the same UI, plan JSON, multi-step MaaS agents, and Kafka CloudEvents HITL as the Quarkus LangChain4j template. Community Go modules + community container bases (Debian) for RHDA/TPA/ACS CVEs; switch to Dockerfile.ubi (Red Hat UBI) to compare."
   tags:
     - recommended
     - go
     - golang
     - agentic
     - kafka
+    - langchain4j
     - hitl
     - rhads
 spec:
@@ -28,7 +29,7 @@ spec:
         description:
           title: Description
           type: string
-          default: Agentic Trip Planner (Go + Kafka HITL)
+          default: Agentic Trip Planner (Go + Kafka + MaaS)
         owner:
           title: Owner
           type: string

@@ -1,0 +1,87 @@
+replicaCount: 1
+runtime: go
+# CDC consumer — no MaaS
+
+image:
+  pullPolicy: Always
+  registry:
+  host:
+  organization:
+  name:
+  tag:
+  password:
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+podAnnotations: {}
+
+podSecurityContext:
+  runAsNonRoot: true
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+
+service:
+  type: ClusterIP
+  port: 8080
+
+route:
+  host: ""
+  path: /
+
+livenessProbe:
+  httpGet:
+    path: /health
+    port: http
+  initialDelaySeconds: 10
+  periodSeconds: 10
+  timeoutSeconds: 5
+
+readinessProbe:
+  httpGet:
+    path: /health
+    port: http
+  initialDelaySeconds: 5
+  periodSeconds: 10
+  timeoutSeconds: 5
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    cpu: 500m
+    memory: 256Mi
+
+maas:
+  enabled: false
+  baseUrl: https://maas-rhdp.apps.maas.redhatworkshops.io/v1/
+  model: qwen3-14b
+
+kafka:
+  bootstrapServers: rhads-kafka-kafka-bootstrap.kafka.svc:9092
+  topic: orders-cdc.public.orders
+
+apicurio:
+  url: http://rhads-registry-service.apicurio.svc:8080
+
+autoscaling:
+  enabled: false
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+userdata:
+targetNamespace: ${{ values.targetNamespace }}

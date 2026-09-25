@@ -1,0 +1,34 @@
+nameOverride: ""
+
+owner: developers
+
+git:
+  host: ""
+  repo: ""
+  branch: main
+  gitopsRepo: ""
+
+image:
+  dockerfile: Dockerfile
+  registry: Quay
+  organization: rhads
+  host: ""
+  name: app
+  namespace: ""
+  tag: latest
+  password: ""
+
+cluster:
+  subdomain: ""
+
+build:
+  language: go
+  cacheSize: 8Gi
+
+appRuntime: go
+
+db:
+  password: backstage
+
+kafka:
+  bootstrapServers: rhads-kafka-kafka-bootstrap.kafka.svc:9092

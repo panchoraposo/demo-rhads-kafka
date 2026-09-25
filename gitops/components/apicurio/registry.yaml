@@ -1,0 +1,39 @@
+apiVersion: registry.apicur.io/v1
+kind: ApicurioRegistry
+metadata:
+  name: rhads-registry
+  namespace: apicurio
+  labels:
+    app.kubernetes.io/part-of: rhads-demo
+  annotations:
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  configuration:
+    persistence: kafkasql
+    kafkasql:
+      bootstrapServers: rhads-kafka-kafka-bootstrap.kafka.svc:9092
+  deployment:
+    replicas: 1
+---
+# Short hostname (operator may also create a default route — this is the demo URL).
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: apicurio
+  namespace: apicurio
+  labels:
+    app.kubernetes.io/part-of: rhads-demo
+  annotations:
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  host: apicurio.CLUSTER_SUBDOMAIN_PLACEHOLDER
+  to:
+    kind: Service
+    name: rhads-registry-service
+    weight: 100
+  port:
+    targetPort: http
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+  wildcardPolicy: None

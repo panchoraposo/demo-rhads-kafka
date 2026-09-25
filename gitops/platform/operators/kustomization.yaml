@@ -15,6 +15,8 @@ resources:
   - namespace-kafka.yaml
   - namespace-kafka-console.yaml
   - namespace-coo.yaml
+  - namespace-apicurio.yaml
+  - namespace-debezium.yaml
   - operatorgroup-eso.yaml
   - subscription-eso.yaml
   # OwnNamespace operators
@@ -27,6 +29,7 @@ resources:
   - operatorgroup-rhtpa.yaml
   - operatorgroup-kafka-console.yaml
   - operatorgroup-coo.yaml
+  - operatorgroup-apicurio.yaml
   # ODF OperatorGroup + odf-operator Subscription stay out of this kustomization.
   # Workshop clusters already run external ODF; Ansible installs ODF only when absent.
   # AllNamespaces operators (RHDH, RHTAS, RHACS, Pipelines, Dev Spaces, AMQ Streams)
@@ -42,3 +45,4 @@ resources:
   - subscription-amq-streams.yaml
   - subscription-amq-streams-console.yaml
   - subscription-coo.yaml
+  - subscription-apicurio.yaml

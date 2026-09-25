@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>${{values.component_id}} — CDC</title>
+  <style>
+    :root { --bg:#0f1419; --panel:#1a2332; --text:#e7ecf3; --muted:#8b9bb4; --accent:#ee0000; --ok:#3dd68c; }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family: "IBM Plex Sans", system-ui, sans-serif; background:var(--bg); color:var(--text); }
+    header { padding:1.5rem 2rem; border-bottom:1px solid #243044; }
+    h1 { margin:0; font-size:1.4rem; }
+    p { color:var(--muted); margin:.4rem 0 0; }
+    main { padding:1.5rem 2rem; display:grid; gap:1rem; }
+    .card { background:var(--panel); border-radius:8px; padding:1rem 1.25rem; }
+    table { width:100%; border-collapse:collapse; font-size:.9rem; }
+    th, td { text-align:left; padding:.5rem .4rem; border-bottom:1px solid #243044; }
+    th { color:var(--muted); font-weight:600; }
+    .op { font-weight:700; text-transform:uppercase; }
+    .op-c { color:var(--ok); } .op-u { color:#f5a623; } .op-d { color:var(--accent); }
+    a { color:#6cb6ff; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>${{values.component_id}}</h1>
+    <p>Postgres CDC via Red Hat build of Debezium · schemas in Apicurio Registry</p>
+  </header>
+  <main>
+    <div class="card" id="info">Loading…</div>
+    <div class="card">
+      <h2 style="margin-top:0;font-size:1rem;">Recent CDC events</h2>
+      <table>
+        <thead><tr><th>Op</th><th>ID</th><th>Customer</th><th>Amount</th><th>Status</th><th>Received</th></tr></thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+  </main>
+  <script>
+    async function refresh() {
+      const info = await fetch('/api/info').then(r => r.json());
+      document.getElementById('info').innerHTML =
+        `<strong>Topic</strong> <code>${info.topic}</code> · ` +
+        `<strong>Apicurio artifact</strong> <code>${info.group}/${info.artifact}</code> · ` +
+        `<a href="${info.apicurio}/ui/artifacts" target="_blank" rel="noopener">Open Apicurio UI</a>`;
+      const events = await fetch('/api/events').then(r => r.json());
+      const tb = document.getElementById('rows');
+      tb.innerHTML = (events || []).map(e =>
+        `<tr><td class="op op-${e.op}">${e.op}</td><td>${e.id}</td><td>${e.customer||''}</td>` +
+        `<td>${e.amount??''}</td><td>${e.status||''}</td><td>${e.received||''}</td></tr>`
+      ).join('') || '<tr><td colspan="6">Waiting for DB changes…</td></tr>';
+    }
+    refresh();
+    setInterval(refresh, 3000);
+  </script>
+</body>
+</html>

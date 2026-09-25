@@ -1,0 +1,48 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "cdc.name" . }}-postgres-init
+  labels:
+    {{- include "cdc.labels" . | nindent 4 }}
+data:
+  01-orders.sql: |
+    -- Demo orders table + logical replication publication for Debezium (pgoutput).
+    CREATE TABLE IF NOT EXISTS public.orders (
+      id       SERIAL PRIMARY KEY,
+      customer TEXT NOT NULL,
+      amount   NUMERIC(12, 2) NOT NULL,
+      status   TEXT NOT NULL DEFAULT 'new'
+    );
+
+    ALTER ROLE {{ .Values.db.user }} WITH REPLICATION;
+
+    DO $$
+    BEGIN
+      IF NOT EXISTS (SELECT 1 FROM pg_publication WHERE pubname = '{{ .Values.connector.publicationName }}') THEN
+        CREATE PUBLICATION {{ .Values.connector.publicationName }} FOR TABLE public.orders;
+      END IF;
+    END
+    $$;
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "cdc.name" . }}-order-change-avsc
+  labels:
+    {{- include "cdc.labels" . | nindent 4 }}
+data:
+  order-change.avsc: |
+    {
+      "type": "record",
+      "name": "OrderChange",
+      "namespace": "com.rhads.cdc",
+      "doc": "Canonical order change event after Debezium CDC (demo).",
+      "fields": [
+        { "name": "id", "type": "long" },
+        { "name": "customer", "type": "string" },
+        { "name": "amount", "type": "double" },
+        { "name": "status", "type": "string" },
+        { "name": "op", "type": "string", "doc": "c|u|d|r from Debezium" },
+        { "name": "ts_ms", "type": ["null", "long"], "default": null }
+      ]
+    }

@@ -1,5 +1,5 @@
 apiVersion: v2
 name: quarkus-template
-description: Agentic Trip Planner (Quarkus Flow + Kafka) runtime chart
+description: Agentic Trip Planner (LangChain4j + Kafka) runtime chart
 type: application
 version: 0.1.0

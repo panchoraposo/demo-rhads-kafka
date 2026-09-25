@@ -1,39 +1,17 @@
-# ${{values.component_id}} — Agentic Trip Planner (Go + Kafka)
+# ${{values.component_id}}
 
-Same demo narrative as **Quarkus Flow/Kafka**: plan a trip, pause for human approval over Kafka CloudEvents (`flow-in` / `flow-out`), approve or reject without holding the planning HTTP request.
+${{values.description}}
 
-## Demo beats
+Agentic **Trip Planner** with the same behaviour as the Quarkus LangChain4j template: MaaS multi-step planning (vehicle + itinerary → evaluators → reviser → costs), Kafka CloudEvents HITL on `flow-in` / `flow-out`, and the same UI/API contract. Runtime is **Go** with community modules/images for the RHDA/ACS CVE story (switch to `Dockerfile.ubi` for Red Hat UBI).
 
-1. RHDA on `go.mod` (intentional community module CVEs: jwt-go, gorilla/websocket, yaml.v2, x/net).
-2. First pipeline build uses **community** images (`golang:1.21.0-bookworm` + `debian:12.0-slim`) → ACS / Syft show base-OS CVEs.
-3. Switch runtime to Red Hat UBI (`Dockerfile.ubi`) → rebuild → compare ACS findings.
-4. Open Trip UI → Plan → Kafka Console → Approve.
+## Inner loop
 
-### Community → Red Hat base image
+1. Set `MAAS_API_KEY` (and optional `MAAS_BASE_URL` / `MAAS_MODEL`).
+2. Point `KAFKA_BOOTSTRAP_SERVERS` at the cluster (or local Compose `localhost:9092`).
+3. `go run ./cmd/server` — UI on the configured `PORT` (default 8080 in cluster, 8082 local).
 
-| File | Builder | Runtime |
-| --- | --- | --- |
-| `Dockerfile` (default) | `docker.io/library/golang:1.21.0-bookworm` | `docker.io/library/debian:12.0-slim` |
-| `Dockerfile.ubi` | `registry.access.redhat.com/ubi9/go-toolset:1.21` | `registry.access.redhat.com/ubi9/ubi-minimal:9.4` |
+Plan a trip from the UI (`POST /trip/plan`). The Kafka engine logs each agent step, publishes to `flow-out`, and pauses for approval. Approve or reject with `PUT /trip/approve`.
 
-Both images follow OpenShift **restricted** SCC (arbitrary non-root UID, files group-owned by `0` with `g=u`, `HOME=/tmp`). No `anyuid` SCC required.
+## Supply chain
 
-In Dev Spaces (or a local edit), point the build Dockerfile at UBI and push:
-
-```bash
-# Option A — replace default Dockerfile
-cp Dockerfile.ubi Dockerfile && git add Dockerfile && git commit -m "Switch runtime to Red Hat UBI" && git push
-
-# Option B — keep both; set dockerfile in the gitops build values / Argo helm values
-#   image.dockerfile: ./Dockerfile.ubi
-```
-
-## Configuration
-
-| Env | Default |
-| --- | --- |
-| `KAFKA_BOOTSTRAP_SERVERS` | `rhads-kafka-kafka-bootstrap.kafka.svc:9092` |
-| `MAAS_BASE_URL` / `MAAS_API_KEY` / `MAAS_MODEL` | From Vault/ESO |
-| `GOPROXY` (Dev Spaces / Tekton) | Nexus `go-group` |
-
-Shared password for platform users: `backstage`.
+Signed `git commit` / `git push` → OpenShift Builds, SBOM, cosign, TPA, Conforma. GitLab **tag** promotes to staging; **release** promotes to production.

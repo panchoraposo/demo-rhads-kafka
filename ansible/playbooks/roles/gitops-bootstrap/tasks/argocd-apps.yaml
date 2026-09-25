@@ -17,6 +17,8 @@
       - { name: quay-ns, path: gitops/components/quay, ns: quay }
       - { name: kafka, path: gitops/components/kafka, ns: kafka }
       - { name: observability, path: gitops/components/observability, ns: rhads-observability }
+      - { name: apicurio, path: gitops/components/apicurio, ns: apicurio }
+      - { name: debezium, path: gitops/components/debezium, ns: debezium }
 
 - name: Create Argo CD Application for operators
   kubernetes.core.k8s:

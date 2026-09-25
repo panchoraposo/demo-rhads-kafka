@@ -11,7 +11,70 @@ apiVersion: backstage.io/v1alpha1
 kind: System
 metadata:
   name: rhads-platform
-  description: GitLab, Developer Hub, RHTAS, TPA, ACS, Quay and OpenShift Pipelines
+  description: GitLab, Developer Hub, RHTAS, TPA, ACS, Quay, Apicurio Registry, Debezium CDC, Vault and OpenShift Pipelines
 spec:
   owner: group:default/platform-engineers
   domain: software-supply-chain
+---
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: apicurio-registry
+  title: Apicurio Registry
+  description: Red Hat build of Apicurio Registry (KafkaSQL) — schemas for trip and CDC apps
+  annotations:
+    backstage.io/kubernetes-id: rhads-registry
+  links:
+    - url: https://apicurio.CLUSTER_SUBDOMAIN_PLACEHOLDER/
+      title: Apicurio UI
+      icon: catalog
+    - url: https://apicurio.CLUSTER_SUBDOMAIN_PLACEHOLDER/apis/registry/v2
+      title: Registry API v2
+      icon: catalog
+  tags: [apicurio, schema, kafka, platform]
+spec:
+  type: service
+  lifecycle: production
+  owner: group:default/platform-engineers
+  system: system:default/rhads-platform
+---
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: debezium-connect
+  title: Debezium Kafka Connect
+  description: Shared Red Hat build of Debezium (PostgreSQL connector) — apps add KafkaConnector only
+  annotations:
+    backstage.io/kubernetes-id: rhads-debezium
+  tags: [debezium, cdc, kafka, platform]
+spec:
+  type: service
+  lifecycle: production
+  owner: group:default/platform-engineers
+  system: system:default/rhads-platform
+---
+apiVersion: backstage.io/v1alpha1
+kind: API
+metadata:
+  name: trip-plan-events
+  description: Shared trip planner CloudEvents AsyncAPI (seeded in Apicurio group default)
+  links:
+    - url: https://apicurio.CLUSTER_SUBDOMAIN_PLACEHOLDER/ui/artifacts/default/trip-plan-events/versions/latest
+      title: Open in Apicurio
+      icon: catalog
+  tags: [asyncapi, kafka, apicurio]
+spec:
+  type: asyncapi
+  lifecycle: production
+  owner: group:default/platform-engineers
+  system: system:default/rhads-platform
+  definition: |
+    asyncapi: '2.6.0'
+    info:
+      title: Trip Planner CloudEvents
+      version: '1.0.0'
+    channels:
+      flow-in:
+        description: Inbound trip requests and approval decisions
+      flow-out:
+        description: Outbound approval requests and booking results

@@ -1,0 +1,117 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: apicurio-seed-schemas
+  namespace: apicurio
+  labels:
+    app.kubernetes.io/part-of: rhads-demo
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    argocd.argoproj.io/sync-wave: "20"
+    argocd.argoproj.io/sync-options: Replace=true
+spec:
+  backoffLimit: 8
+  ttlSecondsAfterFinished: 86400
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: seed
+          image: registry.access.redhat.com/ubi9/ubi:9.6
+          env:
+            - name: REGISTRY
+              value: http://rhads-registry-service.apicurio.svc:8080
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              set -euo pipefail
+              echo "[SSSC] Seed platform schemas into Apicurio Registry"
+              for i in $(seq 1 60); do
+                if curl -sf "${REGISTRY}/health/ready" >/dev/null 2>&1 \
+                  || curl -sf "${REGISTRY}/apis/registry/v2/search/artifacts" >/dev/null 2>&1; then
+                  echo "Apicurio is up"
+                  break
+                fi
+                echo "waiting for Apicurio (${i}/60)..."
+                sleep 10
+              done
+              put_artifact() {
+                local group="$1" id="$2" type="$3" file="$4"
+                echo "--- artifact ${group}/${id} (${type}) ---"
+                CODE="$(curl -sk -o /tmp/reg.out -w '%{http_code}' \
+                  -X POST "${REGISTRY}/apis/registry/v2/groups/${group}/artifacts?ifExists=RETURN" \
+                  -H "Content-Type: application/json; artifactType=${type}" \
+                  -H "X-Registry-ArtifactId: ${id}" \
+                  --data-binary @"${file}" || true)"
+                echo "HTTP ${CODE}"
+                cat /tmp/reg.out || true
+                echo
+              }
+              cat > /tmp/trip-plan.asyncapi.json <<'SCHEMA'
+              {
+                "asyncapi": "2.6.0",
+                "info": {
+                  "title": "Trip Planner CloudEvents",
+                  "version": "1.0.0",
+                  "description": "Kafka CloudEvents for the RHADS trip planner HITL flow (flow-in / flow-out)."
+                },
+                "channels": {
+                  "flow-in": {
+                    "description": "Inbound trip requests and approval decisions",
+                    "subscribe": {
+                      "message": {
+                        "name": "TripInbound",
+                        "payload": {
+                          "type": "object",
+                          "properties": {
+                            "specversion": { "type": "string" },
+                            "type": { "type": "string" },
+                            "source": { "type": "string" },
+                            "id": { "type": "string" },
+                            "data": { "type": "object" }
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "flow-out": {
+                    "description": "Outbound approval requests and booking results",
+                    "publish": {
+                      "message": {
+                        "name": "TripOutbound",
+                        "payload": {
+                          "type": "object",
+                          "properties": {
+                            "specversion": { "type": "string" },
+                            "type": { "type": "string" },
+                            "source": { "type": "string" },
+                            "id": { "type": "string" },
+                            "data": { "type": "object" }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+              SCHEMA
+              cat > /tmp/cdc-order.avsc <<'SCHEMA'
+              {
+                "type": "record",
+                "name": "OrderChange",
+                "namespace": "com.rhads.cdc",
+                "doc": "Canonical order change event after Debezium CDC (demo).",
+                "fields": [
+                  { "name": "id", "type": "long" },
+                  { "name": "customer", "type": "string" },
+                  { "name": "amount", "type": "double" },
+                  { "name": "status", "type": "string" },
+                  { "name": "op", "type": "string", "doc": "c|u|d|r from Debezium" },
+                  { "name": "ts_ms", "type": ["null", "long"], "default": null }
+                ]
+              }
+              SCHEMA
+              put_artifact default trip-plan-events ASYNCAPI /tmp/trip-plan.asyncapi.json
+              put_artifact cdc order-change AVRO /tmp/cdc-order.avsc
+              echo "PASS: platform schemas seeded"

@@ -12,6 +12,11 @@ public record TripError(String error, String message) {
             if (cause instanceof TripQualityException) {
                 return new TripError(TripQualityException.CODE, TripQualityException.MESSAGE);
             }
+            if (cause instanceof IllegalStateException ise
+                    && ise.getMessage() != null
+                    && ise.getMessage().startsWith("MAAS_API_KEY")) {
+                return new TripError("maas_api_key_missing", ise.getMessage());
+            }
             if (cause instanceof GuardrailException) {
                 return new TripError("guardrail_violation",
                         finalizing

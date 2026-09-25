@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: debezium
+  labels:
+    app.kubernetes.io/part-of: rhads-demo
+    # Allow Strimzi / Connect to watch KafkaConnector CRs in app namespaces via
+    # a shared Connect cluster; templates create connectors here or in app NS.

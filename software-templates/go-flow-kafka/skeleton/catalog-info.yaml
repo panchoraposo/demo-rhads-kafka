@@ -8,6 +8,7 @@ metadata:
     - go
     - kafka
     - agentic
+    - langchain4j
     - rhads
   annotations:
     backstage.io/kubernetes-id: ${{values.component_id}}
@@ -16,6 +17,7 @@ metadata:
     gitlab.com/project-slug: ${{values.destination}}
     quay.io/repository-slug: rhads/${{values.component_id}}
     janus-idp.io/tekton: ${{values.component_id}}
+    vault.io/secrets-path: apps/${{values.component_id}}
   links:
     - title: Trip UI (dev)
       url: https://${{values.component_id}}-${{values.component_id}}-dev.${{values.cluster_subdomain}}/
@@ -25,6 +27,10 @@ metadata:
       url: https://server.${{values.cluster_subdomain}}/
     - title: Quay repository
       url: https://quay.${{values.cluster_subdomain}}/repository/rhads/${{values.component_id}}
+    - title: Apicurio — trip CloudEvents schema
+      url: https://apicurio.${{values.cluster_subdomain}}/ui/artifacts/default/trip-plan-events/versions/latest
+    - title: Vault secrets
+      url: https://vault.${{values.cluster_subdomain}}/ui/vault/secrets/secret/list/apps/${{values.component_id}}
 spec:
   type: service
   lifecycle: experimental

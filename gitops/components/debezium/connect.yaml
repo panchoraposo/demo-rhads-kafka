@@ -1,0 +1,91 @@
+# Shared Kafka Connect with Red Hat build of Debezium (PostgreSQL connector).
+# Namespace is created by the operators layer (namespace-debezium.yaml).
+# Templates only create KafkaConnector + database + consumer — no per-app Connect build.
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaConnect
+metadata:
+  name: rhads-debezium
+  namespace: debezium
+  labels:
+    app.kubernetes.io/part-of: rhads-demo
+  annotations:
+    strimzi.io/use-connector-resources: "true"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  replicas: 1
+  bootstrapServers: rhads-kafka-kafka-bootstrap.kafka.svc:9092
+  config:
+    group.id: rhads-debezium
+    offset.storage.topic: rhads-debezium-offsets
+    config.storage.topic: rhads-debezium-configs
+    status.storage.topic: rhads-debezium-status
+    config.storage.replication.factor: 1
+    offset.storage.replication.factor: 1
+    status.storage.replication.factor: 1
+    key.converter: org.apache.kafka.connect.json.JsonConverter
+    value.converter: org.apache.kafka.connect.json.JsonConverter
+    key.converter.schemas.enable: false
+    value.converter.schemas.enable: false
+  build:
+    output:
+      type: docker
+      image: quay.CLUSTER_SUBDOMAIN_PLACEHOLDER/rhads/debezium-connect:latest
+      pushSecret: quay-dockerconfig
+    plugins:
+      - name: debezium-postgres-connector
+        artifacts:
+          # Red Hat build of Debezium — PostgreSQL connector plugin (GA maven).
+          - type: tgz
+            url: https://maven.repository.redhat.com/ga/io/debezium/debezium-connector-postgres/2.7.3.Final-redhat-00001/debezium-connector-postgres-2.7.3.Final-redhat-00001-plugin.tar.gz
+  template:
+    pod:
+      metadata:
+        labels:
+          app.kubernetes.io/part-of: rhads-demo
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: node-role.kubernetes.io/worker
+                    operator: Exists
+                  - key: node-role.kubernetes.io/control-plane
+                    operator: DoesNotExist
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: debezium-copy-quay-secret
+  namespace: debezium
+  labels:
+    app.kubernetes.io/part-of: rhads-demo
+  annotations:
+    argocd.argoproj.io/hook: PreSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    argocd.argoproj.io/sync-wave: "-5"
+    argocd.argoproj.io/sync-options: Replace=true
+spec:
+  backoffLimit: 6
+  template:
+    spec:
+      restartPolicy: OnFailure
+      serviceAccountName: debezium-bootstrap
+      containers:
+        - name: copy
+          image: registry.redhat.io/openshift4/ose-cli:latest
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              set -euo pipefail
+              # Pull robot dockerconfig from rhads-ci (created by quay-config).
+              for i in $(seq 1 36); do
+                if oc -n rhads-ci get secret quay-dockerconfig >/dev/null 2>&1; then
+                  break
+                fi
+                echo "waiting for quay-dockerconfig (${i}/36)"
+                sleep 10
+              done
+              oc -n rhads-ci get secret quay-dockerconfig -o json \
+                | sed 's/"namespace": "rhads-ci"/"namespace": "debezium"/' \
+                | oc apply -f -
+              echo "PASS: quay-dockerconfig in debezium"

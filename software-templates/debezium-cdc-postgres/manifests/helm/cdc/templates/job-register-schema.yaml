@@ -1,0 +1,58 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "cdc.name" . }}-register-schema
+  labels:
+    {{- include "cdc.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    argocd.argoproj.io/sync-wave: "20"
+    argocd.argoproj.io/sync-options: Replace=true
+spec:
+  backoffLimit: 8
+  ttlSecondsAfterFinished: 86400
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: register
+          image: registry.access.redhat.com/ubi9/ubi:9.6
+          env:
+            - name: REGISTRY
+              value: {{ .Values.apicurio.url | quote }}
+            - name: GROUP
+              value: {{ include "cdc.name" . | quote }}
+            - name: ARTIFACT_ID
+              value: order-change
+          volumeMounts:
+            - name: schema
+              mountPath: /schemas
+              readOnly: true
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              set -euo pipefail
+              echo "[SSSC] Register order-change AVRO in Apicurio group=${GROUP}"
+              for i in $(seq 1 60); do
+                if curl -sf "${REGISTRY}/health/ready" >/dev/null 2>&1 \
+                  || curl -sf "${REGISTRY}/apis/registry/v2/search/artifacts" >/dev/null 2>&1; then
+                  echo "Apicurio is up"
+                  break
+                fi
+                echo "waiting for Apicurio (${i}/60)..."
+                sleep 5
+              done
+              CODE="$(curl -sk -o /tmp/reg.out -w '%{http_code}' \
+                -X POST "${REGISTRY}/apis/registry/v2/groups/${GROUP}/artifacts?ifExists=RETURN" \
+                -H "Content-Type: application/json; artifactType=AVRO" \
+                -H "X-Registry-ArtifactId: ${ARTIFACT_ID}" \
+                --data-binary @/schemas/order-change.avsc || true)"
+              echo "HTTP ${CODE}"
+              cat /tmp/reg.out || true
+              echo
+              echo "PASS: schema ${GROUP}/${ARTIFACT_ID}"
+      volumes:
+        - name: schema
+          configMap:
+            name: {{ include "cdc.name" . }}-order-change-avsc

@@ -1,0 +1,259 @@
+# App-of-apps: CI + CDC (Postgres/connector) + deployments for dev / staging / prod
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: ${{ values.component_id }}-build
+  namespace: ${{ values.gitops_namespace }}
+  labels:
+    rht-gitops.com/${{ values.gitops_namespace }}: ${{ values.component_id }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io/foreground
+spec:
+  project: ${{ values.gitops_project }}
+  source:
+    repoURL: ${{ values.source_repository_gitops }}
+    targetRevision: HEAD
+    path: ./helm/build
+    helm:
+      values: |
+        nameOverride: ${{ values.component_id }}
+        owner: ${{ values.owner }}
+        build:
+          language: ${{ values.build_language }}
+          cacheSize: 8Gi
+        appRuntime: go
+        git:
+          host: ${{ values.repository_host }}
+          repo: ${{ values.source_repository }}
+          gitopsRepo: ${{ values.source_repository_gitops }}
+        image:
+          dockerfile: ${{ values.dockerfile }}
+          registry: ${{ values.image_registry }}
+          organization: ${{ values.image_organization }}
+          password: ${{ values.image_password }}
+          host: ${{ values.image_host }}
+          name: ${{ values.image_name }}
+          namespace: ${{ values.namespace }}
+          tag: ${{ values.image_tag }}
+        cluster:
+          subdomain: ${{ values.cluster_subdomain }}
+        kafka:
+          bootstrapServers: ${{ values.kafka_bootstrap }}
+        db:
+          password: ${{ values.db_password | dump }}
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: ${{ values.namespace }}
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - SkipDryRunOnMissingResource=true
+    managedNamespaceMetadata:
+      labels:
+        argocd.argoproj.io/managed-by: ${{ values.gitops_namespace }}
+        rhads.demo/ci-secrets: "true"
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: ${{ values.component_id }}-cdc
+  namespace: ${{ values.gitops_namespace }}
+  labels:
+    rht-gitops.com/${{ values.gitops_namespace }}: ${{ values.component_id }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io/foreground
+spec:
+  project: ${{ values.gitops_project }}
+  source:
+    repoURL: ${{ values.source_repository_gitops }}
+    targetRevision: HEAD
+    path: ./helm/cdc
+    helm:
+      values: |
+        nameOverride: ${{ values.component_id }}
+        owner: ${{ values.owner }}
+        namespace: ${{ values.namespace }}
+        db:
+          user: orders
+          password: ${{ values.db_password | dump }}
+          name: orders
+        kafka:
+          bootstrapServers: ${{ values.kafka_bootstrap }}
+        apicurio:
+          url: http://rhads-registry-service.apicurio.svc:8080
+        connector:
+          namespace: debezium
+          cluster: rhads-debezium
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: ${{ values.namespace }}
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - SkipDryRunOnMissingResource=true
+    managedNamespaceMetadata:
+      labels:
+        argocd.argoproj.io/managed-by: ${{ values.gitops_namespace }}
+        rhads.demo/ci-secrets: "true"
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: ${{ values.component_id }}-dev
+  namespace: ${{ values.gitops_namespace }}
+  labels:
+    rht-gitops.com/${{ values.gitops_namespace }}: ${{ values.component_id }}
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io/foreground
+spec:
+  project: ${{ values.gitops_project }}
+  source:
+    repoURL: ${{ values.source_repository_gitops }}
+    targetRevision: HEAD
+    path: ./helm/app
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-dev.yaml
+      values: |
+        nameOverride: ${{ values.component_id }}
+        user: ${{ values.owner }}
+        runtime: go
+        service:
+          port: ${{ values.port }}
+        image:
+          registry: ${{ values.image_registry }}
+          organization: ${{ values.image_organization }}
+          host: ${{ values.image_host }}
+          name: ${{ values.image_name }}
+          namespace: ${{ values.namespace }}
+          password: ${{ values.image_password }}
+        kafka:
+          bootstrapServers: ${{ values.kafka_bootstrap }}
+          topic: ${{ values.component_id }}.public.orders
+        apicurio:
+          url: http://rhads-registry-service.apicurio.svc:8080
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: ${{ values.namespace }}
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - SkipDryRunOnMissingResource=true
+    managedNamespaceMetadata:
+      labels:
+        argocd.argoproj.io/managed-by: ${{ values.gitops_namespace }}
+        rhads.demo/ci-secrets: "true"
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: ${{ values.component_id }}-staging
+  namespace: ${{ values.gitops_namespace }}
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io/foreground
+spec:
+  project: ${{ values.gitops_project }}
+  source:
+    repoURL: ${{ values.source_repository_gitops }}
+    targetRevision: HEAD
+    path: ./helm/app
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-staging.yaml
+      values: |
+        nameOverride: ${{ values.component_id }}
+        user: ${{ values.owner }}
+        runtime: go
+        service:
+          port: ${{ values.port }}
+        image:
+          registry: ${{ values.image_registry }}
+          organization: ${{ values.image_organization }}
+          host: ${{ values.image_host }}
+          name: ${{ values.image_name }}
+          namespace: ${{ values.component_id }}-staging
+          password: ${{ values.image_password }}
+        kafka:
+          bootstrapServers: ${{ values.kafka_bootstrap }}
+          topic: ${{ values.component_id }}.public.orders
+        apicurio:
+          url: http://rhads-registry-service.apicurio.svc:8080
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: ${{ values.component_id }}-staging
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - SkipDryRunOnMissingResource=true
+    managedNamespaceMetadata:
+      labels:
+        argocd.argoproj.io/managed-by: ${{ values.gitops_namespace }}
+        rhads.demo/ci-secrets: "true"
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: ${{ values.component_id }}-prod
+  namespace: ${{ values.gitops_namespace }}
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io/foreground
+spec:
+  project: ${{ values.gitops_project }}
+  source:
+    repoURL: ${{ values.source_repository_gitops }}
+    targetRevision: HEAD
+    path: ./helm/app
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-prod.yaml
+      values: |
+        nameOverride: ${{ values.component_id }}
+        user: ${{ values.owner }}
+        runtime: go
+        service:
+          port: ${{ values.port }}
+        image:
+          registry: ${{ values.image_registry }}
+          organization: ${{ values.image_organization }}
+          host: ${{ values.image_host }}
+          name: ${{ values.image_name }}
+          namespace: ${{ values.component_id }}-prod
+          password: ${{ values.image_password }}
+        kafka:
+          bootstrapServers: ${{ values.kafka_bootstrap }}
+          topic: ${{ values.component_id }}.public.orders
+        apicurio:
+          url: http://rhads-registry-service.apicurio.svc:8080
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: ${{ values.component_id }}-prod
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - SkipDryRunOnMissingResource=true
+    managedNamespaceMetadata:
+      labels:
+        argocd.argoproj.io/managed-by: ${{ values.gitops_namespace }}
+        rhads.demo/ci-secrets: "true"

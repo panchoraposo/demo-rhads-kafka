@@ -1,0 +1,102 @@
+# Applies KafkaConnector into the shared Connect namespace (debezium).
+# Strimzi only watches connectors in the same namespace as KafkaConnect.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "cdc.name" . }}-connector
+  labels:
+    {{- include "cdc.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    argocd.argoproj.io/sync-wave: "10"
+    argocd.argoproj.io/sync-options: Replace=true
+spec:
+  backoffLimit: 12
+  ttlSecondsAfterFinished: 86400
+  template:
+    spec:
+      restartPolicy: OnFailure
+      serviceAccountName: {{ include "cdc.name" . }}-cdc
+      containers:
+        - name: apply-connector
+          image: registry.redhat.io/openshift4/ose-cli:latest
+          env:
+            - name: COMPONENT_ID
+              value: {{ include "cdc.name" . | quote }}
+            - name: CONNECTOR_NS
+              value: {{ .Values.connector.namespace | quote }}
+            - name: CONNECT_CLUSTER
+              value: {{ .Values.connector.cluster | quote }}
+            - name: PG_HOST
+              value: {{ include "cdc.postgresHost" . | quote }}
+            - name: PG_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "cdc.name" . }}-db-credentials
+                  key: database.user
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "cdc.name" . }}-db-credentials
+                  key: database.password
+            - name: PG_DB
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "cdc.name" . }}-db-credentials
+                  key: database.dbname
+            - name: PLUGIN_NAME
+              value: {{ .Values.connector.pluginName | quote }}
+            - name: PUBLICATION_NAME
+              value: {{ .Values.connector.publicationName | quote }}
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              set -euo pipefail
+              echo "Waiting for Postgres at ${PG_HOST}:5432"
+              for i in $(seq 1 60); do
+                if oc -n "$(cat /var/run/secrets/kubernetes.io/serviceaccount/namespace)" \
+                  get endpoints "${COMPONENT_ID}-postgres" -o jsonpath='{.subsets[*].addresses[*].ip}' 2>/dev/null | grep -q .; then
+                  echo "Postgres endpoints ready"
+                  break
+                fi
+                echo "waiting for postgres endpoints (${i}/60)..."
+                sleep 5
+              done
+              echo "Waiting for KafkaConnect ${CONNECT_CLUSTER} in ${CONNECTOR_NS}"
+              for i in $(seq 1 60); do
+                READY="$(oc -n "${CONNECTOR_NS}" get kafkaconnect "${CONNECT_CLUSTER}" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || true)"
+                if [ "${READY}" = "True" ]; then
+                  echo "KafkaConnect Ready"
+                  break
+                fi
+                echo "waiting for KafkaConnect Ready (${i}/60) status=${READY:-unknown}"
+                sleep 10
+              done
+              cat >/tmp/connector.yaml <<EOF
+              apiVersion: kafka.strimzi.io/v1beta2
+              kind: KafkaConnector
+              metadata:
+                name: ${COMPONENT_ID}-orders
+                namespace: ${CONNECTOR_NS}
+                labels:
+                  strimzi.io/cluster: ${CONNECT_CLUSTER}
+                  app.kubernetes.io/part-of: rhads-demo
+                  backstage.io/kubernetes-id: ${COMPONENT_ID}
+              spec:
+                class: io.debezium.connector.postgresql.PostgresConnector
+                tasksMax: 1
+                config:
+                  database.hostname: ${PG_HOST}
+                  database.port: "5432"
+                  database.user: ${PG_USER}
+                  database.password: ${PG_PASSWORD}
+                  database.dbname: ${PG_DB}
+                  topic.prefix: ${COMPONENT_ID}
+                  table.include.list: public.orders
+                  plugin.name: ${PLUGIN_NAME}
+                  publication.name: ${PUBLICATION_NAME}
+                  slot.name: ${COMPONENT_ID}_orders
+              EOF
+              oc apply -f /tmp/connector.yaml
+              echo "PASS: KafkaConnector ${COMPONENT_ID}-orders in ${CONNECTOR_NS}"

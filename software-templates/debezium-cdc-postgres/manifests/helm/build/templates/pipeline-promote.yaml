@@ -1,0 +1,104 @@
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: {{ include "rhads-build.name" . }}-promote
+  labels:
+    {{- include "rhads-build.labels" . | nindent 4 }}
+spec:
+  params:
+    - name: output-image
+      type: string
+      default: {{ include "image.dev-url" . }}
+    - name: image-tag
+      type: string
+    - name: gitops-repo
+      type: string
+      default: {{ .Values.git.gitopsRepo }}
+    - name: overlay
+      type: string
+    - name: component-id
+      type: string
+      default: {{ include "rhads-build.name" . }}
+    - name: strict
+      type: string
+      default: "true"
+    - name: source-repo
+      type: string
+      default: {{ .Values.git.repo }}
+    - name: git-ref
+      type: string
+      default: ""
+  workspaces:
+    - name: source-folder
+  tasks:
+    - name: acs-check
+      taskRef:
+        resolver: cluster
+        params:
+          - { name: kind, value: task }
+          - { name: name, value: rhads-acs-image-check }
+          - { name: namespace, value: rhads-ci }
+      params:
+        - { name: IMAGE, value: "$(params.output-image):$(params.image-tag)" }
+        - { name: STRICT, value: "false" }
+
+    - name: conforma
+      runAfter: [acs-check]
+      taskRef:
+        resolver: cluster
+        params:
+          - { name: kind, value: task }
+          - { name: name, value: rhads-conforma-verify }
+          - { name: namespace, value: rhads-ci }
+      params:
+        - { name: IMAGE, value: "$(params.output-image):$(params.image-tag)" }
+        - { name: REKOR_URL, value: https://rekor-server-trusted-artifact-signer.{{ .Values.cluster.subdomain }} }
+        - { name: FULCIO_URL, value: https://fulcio-server-trusted-artifact-signer.{{ .Values.cluster.subdomain }} }
+        - { name: SOURCE_REPO, value: $(params.source-repo) }
+        - { name: GIT_REVISION, value: $(params.image-tag) }
+        - { name: STRICT, value: $(params.strict) }
+        - { name: ENVIRONMENT, value: $(params.overlay) }
+
+    - name: update-gitops
+      runAfter: [conforma]
+      taskRef:
+        resolver: cluster
+        params:
+          - { name: kind, value: task }
+          - { name: name, value: rhads-update-gitops }
+          - { name: namespace, value: rhads-ci }
+      params:
+        - { name: GITOPS_REPO, value: $(params.gitops-repo) }
+        - { name: IMAGE, value: "$(params.output-image):$(params.image-tag)" }
+        - { name: IMAGE_TAG, value: $(params.image-tag) }
+        - { name: OVERLAY, value: $(params.overlay) }
+        - { name: COMPONENT, value: $(params.component-id) }
+        - { name: RUNTIME, value: {{ .Values.appRuntime | default "" | quote }} }
+      workspaces:
+        - { name: source, workspace: source-folder, subPath: source }
+
+    - name: gitlab-comment
+      runAfter: [update-gitops]
+      taskRef:
+        resolver: cluster
+        params:
+          - { name: kind, value: task }
+          - { name: name, value: rhads-gitlab-comment }
+          - { name: namespace, value: rhads-ci }
+      params:
+        - { name: SOURCE_REPO, value: $(params.source-repo) }
+        - { name: IMAGE, value: "$(params.output-image):$(params.image-tag)" }
+        - { name: IMAGE_TAG, value: $(params.image-tag) }
+        - { name: ENVIRONMENT, value: $(params.overlay) }
+        - { name: GIT_REF, value: $(params.git-ref) }
+        - { name: COMPONENT, value: $(params.component-id) }
+  finally:
+    - name: chains-status
+      taskRef:
+        resolver: cluster
+        params:
+          - { name: kind, value: task }
+          - { name: name, value: rhads-chains-status }
+          - { name: namespace, value: rhads-ci }
+      params:
+        - { name: PIPELINE_RUN, value: $(context.pipelineRun.name) }

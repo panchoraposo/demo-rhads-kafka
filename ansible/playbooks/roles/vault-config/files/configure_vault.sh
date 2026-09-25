@@ -66,6 +66,38 @@ exec_vault vault write auth/kubernetes/role/app-seed \
   policies=app-seed \
   ttl=15m
 
+cat <<'EOF' | oc --context "$ctx" -n "$ns" exec -i deploy/vault -c vault -- env VAULT_ADDR=http://127.0.0.1:8200 VAULT_TOKEN="$ROOT" vault policy write rhdh-vault-list -
+path "secret/metadata/apps/*" {
+  capabilities = ["list", "read"]
+}
+path "secret/metadata/*" {
+  capabilities = ["list"]
+}
+path "secret/data/apps/*" {
+  capabilities = ["read"]
+}
+path "auth/token/renew-self" {
+  capabilities = ["update"]
+}
+path "auth/token/lookup-self" {
+  capabilities = ["read"]
+}
+EOF
+
+# Static token for Developer Hub Vault plugin (LIST + read metadata only).
+HUB_TOKEN=$(oc --context "$ctx" -n "$ns" exec deploy/vault -c vault -- \
+  env VAULT_ADDR=http://127.0.0.1:8200 VAULT_TOKEN="$ROOT" \
+  vault token create -policy=rhdh-vault-list -ttl=768h -format=json \
+  | sed -n 's/.*"client_token":"\([^"]*\)".*/\1/p' | head -1)
+if [ -n "${HUB_TOKEN}" ]; then
+  oc --context "$ctx" -n "$ns" create secret generic vault-rhdh-token \
+    --from-literal=token="${HUB_TOKEN}" \
+    --dry-run=client -o yaml | oc --context "$ctx" -n "$ns" apply -f -
+  echo "PASS: vault-rhdh-token secret created"
+else
+  echo "WARN: could not create Hub Vault token"
+fi
+
 exec_vault vault auth enable userpass || true
 exec_vault vault write auth/userpass/users/vaultadmin \
   password="$admin_pass" \

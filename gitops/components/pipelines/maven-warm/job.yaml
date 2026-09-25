@@ -47,7 +47,7 @@ spec:
           args:
             - |
               set -euo pipefail
-              echo "[SSSC] Preload Maven local repository for Quarkus Flow + Kafka demo pipelines"
+              echo "[SSSC] Preload Maven local repository for Quarkus LangChain4j + Kafka demo pipelines"
               export MAVEN_OPTS
               MVN=(mvn -B -ntp -s /settings/settings.xml -Dmaven.repo.local=/m2 -DskipTests)
               warm_one() {

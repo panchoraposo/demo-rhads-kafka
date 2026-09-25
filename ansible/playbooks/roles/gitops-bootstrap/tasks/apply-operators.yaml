@@ -52,6 +52,7 @@
     - { ns: openshift-operators, match: amqstreams }
     - { ns: kafka-console, match: amq-streams-console }
     - { ns: openshift-cluster-observability-operator, match: cluster-observability }
+    - { ns: apicurio, match: service-registry }
   loop_control:
     loop_var: csv
 

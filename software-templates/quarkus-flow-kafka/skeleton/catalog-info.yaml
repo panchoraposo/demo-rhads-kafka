@@ -16,6 +16,8 @@ metadata:
     # --- Tekton ---
     janus-idp.io/tekton: ${{values.component_id}}
     tekton.dev/cicd : "true"
+    # --- Vault (Developer Hub Vault plugin) ---
+    vault.io/secrets-path: apps/${{values.component_id}}
     # --- Quay ---
     quay.io/repository-slug: '${{values.image_organization}}/${{values.component_id}}'
     # --- Otras anotaciones ---
@@ -27,7 +29,6 @@ metadata:
   tags:
     - java
     - quarkus
-    - flow
     - kafka
     - langchain4j
   links:
@@ -52,6 +53,12 @@ metadata:
     - url: https://quay.${{values.cluster_subdomain}}/repository/${{values.image_organization}}/${{values.component_id}}
       title: Quay image + signatures
       icon: catalog
+    - url: https://apicurio.${{values.cluster_subdomain}}/ui/artifacts/default/trip-plan-events/versions/latest
+      title: Apicurio — trip CloudEvents schema
+      icon: catalog
+    - url: https://vault.${{values.cluster_subdomain}}/ui/vault/secrets/secret/list/apps/${{values.component_id}}
+      title: Vault secrets
+      icon: catalog
 spec:
   type: service
   lifecycle: development
@@ -68,8 +75,8 @@ metadata:
   {%- endif %}
   tags:
     - quarkus
-    - flow
     - kafka
+    - langchain4j
 spec:
   type: openapi
   lifecycle: development

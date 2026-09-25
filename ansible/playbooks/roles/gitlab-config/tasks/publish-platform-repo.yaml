@@ -121,6 +121,8 @@
     - rhads-quay-ns
     - rhads-kafka
     - rhads-observability
+    - rhads-apicurio
+    - rhads-debezium
   register: patch_argo_src
   failed_when: false
   changed_when: patch_argo_src.rc == 0

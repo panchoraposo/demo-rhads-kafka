@@ -37,6 +37,8 @@ spec:
           env:
             - name: KAFKA_BOOTSTRAP_SERVERS
               value: {{ .Values.kafka.bootstrapServers | default "rhads-kafka-kafka-bootstrap.kafka.svc:9092" | quote }}
+            - name: APICURIO_REGISTRY_URL
+              value: {{ .Values.apicurio.url | default "http://rhads-registry-service.apicurio.svc:8080" | quote }}
             - name: WEB_ROOT
               value: /web
             - name: PORT

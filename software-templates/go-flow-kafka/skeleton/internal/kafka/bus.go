@@ -13,12 +13,8 @@ import (
 	cloudevents "github.com/cloudevents/sdk-go/v2"
 
 	"${{values.module_path}}/internal/model"
+	"${{values.module_path}}/internal/planner"
 	"${{values.module_path}}/internal/store"
-)
-
-const (
-	topicIn  = "flow-in"
-	topicOut = "flow-out"
 )
 
 type Bus interface {
@@ -28,17 +24,16 @@ type Bus interface {
 }
 
 type kafkaBus struct {
-	prod  sarama.SyncProducer
-	cons  sarama.ConsumerGroup
-	store *store.Store
+	prod   sarama.SyncProducer
+	cons   sarama.ConsumerGroup
+	store  *store.Store
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
 }
 
 type inProcess struct {
-	store *store.Store
-	mu    sync.Mutex
-	wait  map[string]chan model.TripApproval
+	store   *store.Store
+	planner *planner.Planner
 }
 
 func NewBus(bootstrap string, st *store.Store) (Bus, error) {
@@ -51,7 +46,7 @@ func NewBus(bootstrap string, st *store.Store) (Bus, error) {
 	if err != nil {
 		return nil, err
 	}
-	group, err := sarama.NewConsumerGroup(brokers, "trip-go-flow-out", cfg)
+	group, err := sarama.NewConsumerGroup(brokers, "trip-go-store", cfg)
 	if err != nil {
 		_ = prod.Close()
 		return nil, err
@@ -64,26 +59,29 @@ func NewBus(bootstrap string, st *store.Store) (Bus, error) {
 		h := &outHandler{store: st}
 		for {
 			if err := group.Consume(ctx, []string{topicOut}, h); err != nil {
-				log.Printf("kafka consume: %v", err)
+				log.Printf("[kafka] store consume: %v", err)
 			}
 			if ctx.Err() != nil {
 				return
 			}
 		}
 	}()
+	log.Printf("[kafka] store listening on topic=%s group=trip-go-store", topicOut)
 	return b, nil
 }
 
-func NewInProcess(st *store.Store) Bus {
-	return &inProcess{store: st, wait: map[string]chan model.TripApproval{}}
+func NewInProcess(st *store.Store, pl *planner.Planner) Bus {
+	return &inProcess{store: st, planner: pl}
 }
 
 func (b *kafkaBus) PublishRequest(requestID string, req model.TripRequest) error {
+	log.Printf("[kafka] publish trip.requested requestId=%s", requestID)
 	payload := map[string]any{"requestId": requestID, "request": req}
 	return b.emit(topicIn, "com.tripplanner.trip.requested", requestID, "", payload)
 }
 
 func (b *kafkaBus) PublishDecision(a model.TripApproval) error {
+	log.Printf("[kafka] publish approval.done instanceId=%s status=%s", a.InstanceID, a.Status)
 	return b.emit(topicIn, "com.tripplanner.trip.approval.done", a.InstanceID, a.InstanceID, a)
 }
 
@@ -107,6 +105,9 @@ func (b *kafkaBus) emit(topic, ceType, key, instanceID string, data any) error {
 	}
 	msg := &sarama.ProducerMessage{Topic: topic, Key: sarama.StringEncoder(key), Value: sarama.ByteEncoder(body)}
 	_, _, err = b.prod.SendMessage(msg)
+	if err != nil {
+		log.Printf("[kafka] publish %s failed: %v", ceType, err)
+	}
 	return err
 }
 
@@ -135,45 +136,68 @@ func (h *outHandler) ConsumeClaim(sess sarama.ConsumerGroupSession, claim sarama
 }
 
 func (h *outHandler) apply(ev cloudevents.Event) {
+	switch ev.Type() {
+	case "com.tripplanner.trip.approval.requested",
+		"com.tripplanner.booking.finalized",
+		"com.tripplanner.trip.rejected",
+		"com.tripplanner.trip.failed":
+	default:
+		return
+	}
 	var status model.TripPlanStatus
 	if err := json.Unmarshal(ev.Data(), &status); err != nil {
+		log.Printf("[kafka] bad outcome payload type=%s: %v", ev.Type(), err)
 		return
 	}
-	if status.RequestID == "" && status.InstanceID == "" {
-		return
-	}
-	h.store.Update(&status)
+	log.Printf("[kafka] store accept type=%s requestId=%s status=%s", ev.Type(), status.RequestID, status.Status)
+	h.store.AcceptOutcome(&status)
 }
 
 func (p *inProcess) PublishRequest(requestID string, req model.TripRequest) error {
-	instanceID := "local-" + requestID
+	instanceID := "go-" + requestID
 	st := p.store.Bind(requestID, instanceID)
 	if st == nil {
 		return fmt.Errorf("unknown request")
 	}
-	st.Status = "awaiting_approval"
-	st.Plan = &model.TripPlan{
-		Summary:   fmt.Sprintf("In-process plan for %s", req.Destination),
-		Itinerary: []string{"Day 1: arrive", "Day 2: explore", "Day 3: return"},
-		Vehicle:   "Compact SUV",
-		Estimate:  "stub (Kafka offline)",
+	log.Printf("[kafka] in-process planning requestId=%s", requestID)
+	plan, err := p.planner.Plan(req)
+	if err != nil {
+		code, message := planner.MapError(err)
+		failed := *st
+		failed.Status = "failed"
+		failed.Error = code
+		failed.Message = message
+		p.store.AcceptOutcome(&failed)
+		return nil
 	}
-	p.store.Update(st)
+	awaiting := *st
+	awaiting.Status = "awaiting_approval"
+	awaiting.Plan = plan
+	p.store.AcceptOutcome(&awaiting)
 	return nil
 }
 
 func (p *inProcess) PublishDecision(a model.TripApproval) error {
+	if !p.store.MatchesDecision(a.InstanceID, a) {
+		return fmt.Errorf("unmatched decision")
+	}
 	st := p.store.ByInstance(a.InstanceID)
 	if st == nil {
 		return fmt.Errorf("unknown instance")
 	}
 	if a.Status == "rejected" {
-		st.Status = "rejected"
-	} else {
-		st.Status = "confirmed"
-		st.Confirmation = &model.BookingConfirmation{Reference: "MOS-GODEMO", Message: "Simulated booking confirmed. No vehicle has been reserved."}
+		rejected := *st
+		rejected.Status = "rejected"
+		p.store.AcceptOutcome(&rejected)
+		return nil
 	}
-	p.store.Update(st)
+	confirmed := *st
+	confirmed.Status = "confirmed"
+	confirmed.Confirmation = &model.BookingConfirmation{
+		BookingReference: fmt.Sprintf("MOS-%d", time.Now().Unix()%100000000),
+		Message:          "Simulated booking confirmed. No vehicle has been reserved.",
+	}
+	p.store.AcceptOutcome(&confirmed)
 	return nil
 }
 

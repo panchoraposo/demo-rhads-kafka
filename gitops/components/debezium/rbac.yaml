@@ -1,0 +1,51 @@
+# PreSync Job needs rights to read rhads-ci secrets and write into debezium.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: debezium-bootstrap
+  namespace: debezium
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: rhads-debezium-bootstrap
+  labels:
+    app.kubernetes.io/part-of: rhads-demo
+rules:
+  - apiGroups: [""]
+    resources: [secrets]
+    verbs: [get, list, create, update, patch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: rhads-debezium-bootstrap
+  labels:
+    app.kubernetes.io/part-of: rhads-demo
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: rhads-debezium-bootstrap
+subjects:
+  - kind: ServiceAccount
+    name: debezium-bootstrap
+    namespace: debezium
+  - kind: ServiceAccount
+    name: default
+    namespace: debezium
+---
+# Bound by each CDC app chart so PostSync Jobs can apply KafkaConnector
+# into the shared Connect namespace without standing up per-app KafkaConnect.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: rhads-debezium-connector
+  labels:
+    app.kubernetes.io/part-of: rhads-demo
+rules:
+  - apiGroups: [kafka.strimzi.io]
+    resources: [kafkaconnectors, kafkaconnects]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [""]
+    resources: [namespaces]
+    verbs: [get, list]

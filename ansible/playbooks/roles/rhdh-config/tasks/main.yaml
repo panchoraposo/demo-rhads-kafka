@@ -90,6 +90,17 @@
     quay_ui_url: "https://{{ quay_url | default(quay_host) }}"
     backstage_client_secret: "{{ backstage_client_secret | default((existing_backstage_env.resources[0].data.OAUTH_CLIENT_SECRET | b64decode) if (existing_backstage_env.resources | default([]) | length > 0 and existing_backstage_env.resources[0].data.OAUTH_CLIENT_SECRET is defined) else '') }}"
 
+- name: Read Vault token for Developer Hub plugin
+  ansible.builtin.command:
+    cmd: oc --context {{ oc_context }} -n {{ vault_namespace }} extract secret/vault-rhdh-token --to=- --keys=token
+  register: vault_rhdh_token_cmd
+  changed_when: false
+  failed_when: false
+
+- name: Set Vault Hub token fact
+  ansible.builtin.set_fact:
+    vault_rhdh_token: "{{ vault_rhdh_token_cmd.stdout | default('') }}"
+
 - name: Create backstage-env
   kubernetes.core.k8s:
     state: present
@@ -114,6 +125,8 @@
         QUAY_UI_URL: "{{ quay_ui_url }}"
         MCP_TOKEN: "{{ mcp_token }}"
         BACKEND_SECRET: "{{ backend_secret_value }}"
+        VAULT_TOKEN: "{{ vault_rhdh_token | default('') }}"
+        APICURIO_URL: "https://{{ apicurio_host | default('apicurio.' + openshift_base_domain) }}"
 
 - name: Remove leftover RHDH operator from the backstage namespace
   kubernetes.core.k8s:

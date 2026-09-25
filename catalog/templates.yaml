@@ -7,3 +7,4 @@ spec:
   targets:
     - ../software-templates/quarkus-flow-kafka/template.yaml
     - ../software-templates/go-flow-kafka/template.yaml
+    - ../software-templates/debezium-cdc-postgres/template.yaml

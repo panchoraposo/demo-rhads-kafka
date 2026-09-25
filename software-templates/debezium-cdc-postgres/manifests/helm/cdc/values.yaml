@@ -1,0 +1,22 @@
+nameOverride: ""
+
+owner: developers
+namespace: ""
+
+db:
+  user: orders
+  password: backstage
+  name: orders
+  storage: 5Gi
+
+kafka:
+  bootstrapServers: rhads-kafka-kafka-bootstrap.kafka.svc:9092
+
+apicurio:
+  url: http://rhads-registry-service.apicurio.svc:8080
+
+connector:
+  namespace: debezium
+  cluster: rhads-debezium
+  pluginName: pgoutput
+  publicationName: dbz_publication

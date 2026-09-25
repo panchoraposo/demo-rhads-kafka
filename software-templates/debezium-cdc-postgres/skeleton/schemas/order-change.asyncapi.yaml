@@ -1,0 +1,23 @@
+asyncapi: '2.6.0'
+info:
+  title: ${{values.component_id}} order-change
+  version: '1.0.0'
+  description: |
+    Debezium CDC events for `public.orders`. Canonical Avro artifact in Apicurio:
+    group `${{values.component_id}}`, artifact `order-change`.
+channels:
+  ${{values.kafka_topic}}:
+    description: Topic produced by Red Hat build of Debezium (PostgresConnector)
+    subscribe:
+      message:
+        name: OrderChange
+        payload:
+          type: object
+          required: [id, customer, amount, status, op]
+          properties:
+            id: { type: integer, format: int64 }
+            customer: { type: string }
+            amount: { type: number }
+            status: { type: string }
+            op: { type: string, description: 'c|u|d|r' }
+            ts_ms: { type: integer, format: int64, nullable: true }

@@ -1,0 +1,125 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "rhads-build.name" . }}-webhook
+data:
+  create.sh: |
+    #!/bin/bash
+    set -euo pipefail
+    HOST="{{ .Values.git.host }}"
+    REPO="{{ .Values.git.repo }}"
+    HELM_TOKEN="{{ .Values.git.token | default "" }}"
+    if [ -n "${HELM_TOKEN}" ]; then
+      TOKEN="FAKESECRET_u2v3w4x5y6z7a8b9c0d1"
+    fi
+    : "${TOKEN:?gitlab-token secret is missing or empty}"
+    EL="http://el-{{ include "rhads-build.name" . }}-el.{{ .Release.Namespace }}.svc.cluster.local:8080"
+    PROJECT_PATH="$(echo "${REPO}" | sed 's#https://'"${HOST}"'/##' | sed 's#\.git$##' | sed 's#/#%2F#g')"
+    API="https://${HOST}/api/v4/projects/${PROJECT_PATH}"
+    AUTH=(--header "PRIVATE-TOKEN: ${TOKEN}")
+    REPO_HTTP="${REPO}"
+    case "${REPO_HTTP}" in
+      *.git) ;;
+      *) REPO_HTTP="${REPO_HTTP}.git" ;;
+    esac
+
+    echo "Registering GitLab webhook ${EL} on ${PROJECT_PATH}"
+    set +e
+    HOOK_CODE="$(curl -sk -o /tmp/hook.out -w '%{http_code}' "${AUTH[@]}" -X POST "${API}/hooks" \
+      --data-urlencode "url=${EL}" \
+      --data "push_events=true" \
+      --data "tag_push_events=true" \
+      --data "releases_events=true" \
+      --data "enable_ssl_verification=false")"
+    set -e
+    echo "create hook HTTP ${HOOK_CODE}"
+    cat /tmp/hook.out || true
+    echo
+    if [ "${HOOK_CODE}" != "201" ] && [ "${HOOK_CODE}" != "200" ]; then
+      echo "Hook may already exist; continuing so the first pipeline still runs."
+    fi
+
+    echo "Resolving default-branch HEAD for the initial unsigned build"
+    curl -skf "${AUTH[@]}" "${API}/repository/branches/main" -o /tmp/branch.out
+    SHA="$(grep -oE '"id":"[a-f0-9]{40}"' /tmp/branch.out | head -1 | cut -d'"' -f4)"
+    : "${SHA:?could not read commit SHA from GitLab}"
+    echo "HEAD ${SHA}"
+
+    PAYLOAD="$(printf '%s' "{\"object_kind\":\"push\",\"ref\":\"refs/heads/main\",\"after\":\"${SHA}\",\"checkout_sha\":\"${SHA}\",\"repository\":{\"git_http_url\":\"${REPO_HTTP}\"}}")"
+
+    QUAY_HOST="{{ .Values.image.host }}"
+    QUAY_ORG="{{ .Values.image.organization | default "rhads" }}"
+    QUAY_REPO="{{ .Values.image.name }}"
+    if [ -n "${QUAY_HOST}" ] && [ -n "${QUAY_REPO}" ]; then
+      echo "Ensuring Quay repository ${QUAY_ORG}/${QUAY_REPO} exists so the first image push is authorized"
+      set +e
+      CSRF="$(curl -sk -c /tmp/quay.cj -b /tmp/quay.cj "https://${QUAY_HOST}/csrf_token" | grep -oE '"csrf_token":"[^"]+"' | cut -d'"' -f4)"
+      curl -sk -c /tmp/quay.cj -b /tmp/quay.cj -X POST "https://${QUAY_HOST}/api/v1/signin" \
+        -H "Content-Type: application/json" -H "X-CSRF-Token: ${CSRF}" \
+        --data '{"username":"quayadmin","password":"backstage"}' >/tmp/quay.signin
+      CSRF="$(curl -sk -c /tmp/quay.cj -b /tmp/quay.cj "https://${QUAY_HOST}/csrf_token" | grep -oE '"csrf_token":"[^"]+"' | cut -d'"' -f4)"
+      QCODE="$(curl -sk -c /tmp/quay.cj -b /tmp/quay.cj -o /tmp/quay.repo -w '%{http_code}' \
+        -X POST "https://${QUAY_HOST}/api/v1/repository" \
+        -H "Content-Type: application/json" -H "X-CSRF-Token: ${CSRF}" \
+        --data "{\"namespace\":\"${QUAY_ORG}\",\"repository\":\"${QUAY_REPO}\",\"visibility\":\"public\",\"description\":\"RHADS demo image for ${QUAY_REPO}\"}")"
+      echo "create quay repo HTTP ${QCODE}"
+      cat /tmp/quay.repo 2>/dev/null || true
+      echo
+      GCODE="$(curl -sk -c /tmp/quay.cj -b /tmp/quay.cj -o /tmp/quay.grant -w '%{http_code}' \
+        -X PUT "https://${QUAY_HOST}/api/v1/repository/${QUAY_ORG}/${QUAY_REPO}/permissions/user/${QUAY_ORG}+pipeline" \
+        -H "Content-Type: application/json" -H "X-CSRF-Token: ${CSRF}" \
+        --data '{"role":"admin"}')"
+      echo "grant quay robot HTTP ${GCODE}"
+      cat /tmp/quay.grant 2>/dev/null || true
+      echo
+      set -e
+    fi
+
+    echo "Waiting for EventListener ${EL} and triggering the first PipelineRun"
+    for i in $(seq 1 36); do
+      set +e
+      TCODE="$(curl -sk -o /tmp/el.out -w '%{http_code}' --connect-timeout 8 --max-time 20 \
+        -X POST -H 'Content-Type: application/json' --data "${PAYLOAD}" "${EL}")"
+      set -e
+      echo "trigger ${i} HTTP ${TCODE}"
+      cat /tmp/el.out 2>/dev/null || true
+      echo
+      if [ "${TCODE}" = "202" ] || [ "${TCODE}" = "200" ]; then
+        echo "PASS: initial pipeline triggered for ${SHA} (SBOM will land in TPA)."
+        exit 0
+      fi
+      sleep 5
+    done
+    echo "FAIL: EventListener did not accept the initial push after retries"
+    exit 1
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "rhads-build.name" . }}-webhook
+  annotations:
+    # Same-sync Job so the first PipelineRun starts without waiting for PVC health.
+    argocd.argoproj.io/sync-options: Replace=true
+spec:
+  backoffLimit: 8
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: hook
+          image: registry.redhat.io/openshift4/ose-cli:latest
+          command: ["/bin/bash", "/scripts/create.sh"]
+          env:
+            - name: TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: gitlab-token
+                  key: token
+          volumeMounts:
+            - name: scripts
+              mountPath: /scripts
+      volumes:
+        - name: scripts
+          configMap:
+            name: {{ include "rhads-build.name" . }}-webhook
+            defaultMode: 0755

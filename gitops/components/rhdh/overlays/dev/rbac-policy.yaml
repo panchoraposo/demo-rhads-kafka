@@ -76,6 +76,7 @@ data:
     p, role:default/developer, tekton.pipelinerun.read, read, allow
     p, role:default/platformengineer, tekton.pipelinerun.read, read, allow
     p, role:default/plugins, gitlab.pipeline.read, read, allow
+    p, role:default/plugins, vault.view.read, read, allow
     p, role:default/developer, gitlab.pipeline.read, read, allow
     p, role:default/platformengineer, gitlab.pipeline.read, read, allow
     g, group:default/platform-engineers, role:default/location_read

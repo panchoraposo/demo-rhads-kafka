@@ -62,6 +62,7 @@
     dash_nexus_url: "https://{{ nexus_host | default('nexus.' + openshift_base_domain) }}/"
     dash_vault_url: "https://{{ vault_host | default(vault_route_res.resources[0].spec.host if (vault_route_res.resources | default([]) | length > 0) else ('vault.' + openshift_base_domain)) }}/"
     dash_kafka_console_url: "https://kafka-console.{{ openshift_base_domain }}/"
+    dash_apicurio_url: "https://{{ apicurio_host | default('apicurio.' + openshift_base_domain) }}/"
     dash_kc_pass: "{{ (kc_secret_res.resources[0].data.password | b64decode) if (kc_secret_res.resources | length > 0) else '' }}"
     dash_argocd_pass: "{{ argocd_pass_cmd.stdout | default('') }}"
     dash_acs_pass: "{{ acs_pass_cmd.stdout | default('') }}"
@@ -168,4 +169,5 @@
       - "Nexus       {{ dash_nexus_url }}"
       - "Vault       {{ dash_vault_url }}  (vaultadmin / {{ common_user_password }})"
       - "Kafka Console  {{ dash_kafka_console_url }}"
+      - "Apicurio   {{ dash_apicurio_url }}"
       - "Perses     Observe → Dashboards (Perses) → rhads-observability"

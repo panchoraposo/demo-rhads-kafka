@@ -1,0 +1,5 @@
+apiVersion: v2
+name: rhads-cdc
+description: PostgreSQL + Debezium KafkaConnector bootstrap + Apicurio schema registration
+type: application
+version: 0.1.0

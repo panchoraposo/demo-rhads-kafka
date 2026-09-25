@@ -1,0 +1,33 @@
+# Red Hat runtime — rebuild with this file after the community ACS scan to show
+# fewer / remediated base-image CVEs (UBI vs Debian).
+#
+# Same OpenShift rootless rules as Dockerfile (arbitrary UID, group 0, g=u).
+#
+ARG GO_BUILDER=registry.access.redhat.com/ubi9/go-toolset:1.21
+ARG GO_RUNTIME=registry.access.redhat.com/ubi9/ubi-minimal:9.4
+
+FROM ${GO_BUILDER} AS builder
+USER 0
+WORKDIR /opt/app-root/src
+COPY . .
+RUN if [ -d vendor ]; then \
+      CGO_ENABLED=0 GOOS=linux go build -mod=vendor -o /tmp/trip-planner ./cmd/server; \
+    else \
+      CGO_ENABLED=0 GOOS=linux go build -o /tmp/trip-planner ./cmd/server; \
+    fi
+
+FROM ${GO_RUNTIME}
+COPY --from=builder /tmp/trip-planner /usr/local/bin/trip-planner
+COPY --from=builder /opt/app-root/src/web /web
+COPY --from=builder /opt/app-root/src/go.mod /go.mod
+COPY --from=builder /opt/app-root/src/go.sum /go.sum
+RUN chgrp -R 0 /usr/local/bin/trip-planner /web /go.mod /go.sum \
+    && chmod -R g=u /web \
+    && chmod g=u /usr/local/bin/trip-planner /go.mod /go.sum \
+    && chmod 775 /web
+ENV WEB_ROOT=/web \
+    HOME=/tmp \
+    PORT=8080
+EXPOSE 8080
+USER 1001
+ENTRYPOINT ["/usr/local/bin/trip-planner"]

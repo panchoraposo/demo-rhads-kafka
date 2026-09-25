@@ -115,3 +115,20 @@ data:
                       if:
                         allOf:
                           - isGitlabAvailable
+      # HashiCorp Vault — list secrets for entities with vault.io/secrets-path
+      - package: oci://ghcr.io/redhat-developer/rhdh-plugin-export-overlays/backstage-community-plugin-vault:{{inherit}}
+        disabled: false
+        pluginConfig:
+          dynamicPlugins:
+            frontend:
+              backstage-community.plugin-vault:
+                mountPoints:
+                  - mountPoint: entity.page.overview/cards
+                    importName: EntityVaultCard
+                    config:
+                      layout:
+                        gridColumnEnd:
+                          lg: "span 6"
+                          xs: "span 12"
+      - package: oci://ghcr.io/redhat-developer/rhdh-plugin-export-overlays/backstage-community-plugin-vault-backend:{{inherit}}
+        disabled: false

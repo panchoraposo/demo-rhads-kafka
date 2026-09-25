@@ -1,22 +1,25 @@
-# Live demo script (~35–40 min) — RHADS + Kafka
+# Live demo script (~40–45 min) — RHADS + Kafka + CDC
 
 Shared password: `backstage`. Keep `https://dashboard.apps.<cluster>/` open.
 
 ## 0. Context (2 min)
 
-**Software supply chain** (who built what, with which dependencies, signed by whom, promoted under which policy) **plus event-driven agentic HITL** over Kafka.
+**Software supply chain** (who built what, with which dependencies, signed by whom, promoted under which policy) **plus event-driven agentic HITL** over Kafka **plus Change Data Capture** with Debezium.
 
-- Developer Hub catalogs **only two** templates: Quarkus Flow/Kafka and Go/Kafka.
-- Quarkus Flow is **community Quarkiverse** on Red Hat build of Quarkus 3.33.
+- Developer Hub catalogs **three** templates: LangChain4j/Kafka, Go/Kafka, and Debezium CDC/Postgres.
+- Quarkus trip planner uses the **Red Hat langchain4j** BOM on Red Hat build of Quarkus 3.33; HITL is Kafka CloudEvents.
 - Streams for Apache Kafka carries CloudEvents (`flow-in` / `flow-out`); the Kafka Console shows them live.
+- **Apicurio Registry** holds trip and CDC schemas; **Vault** secrets appear on each app Overview card.
+- Shared **Red Hat build of Debezium** (`rhads-debezium`) — templates only create connectors + DB.
 - Perses (Cluster Observability Operator) shows Kafka/app dashboards in the OpenShift console.
 
 ## 1. Portal — create the Quarkus app (4 min)
 
 1. Developer Hub → login as **`dev1`**.
-2. Create → **Agentic Trip Planner — Quarkus Flow/Kafka** (`trip-quarkus`, ≤18 chars). Paste the MaaS API key.
+2. Create → **Agentic Trip Planner — LangChain4j/Kafka** (`trip-quarkus`, ≤18 chars). Paste the MaaS API key.
 3. Wait for source + gitops repos and Argo apps (`trip-quarkus-build|dev|staging|prod`).
 4. Bootstrap Jobs seed Vault/ESO (MaaS), Quay repo, and the first PipelineRun (first SBOM in TPA). Do **not** tag the unsigned scaffold yet.
+5. Catalog → component Overview: **Vault** card (`apps/trip-quarkus`) and Apicurio schema link.
 
 ## 2. Inner loop — RHDA / TPA / ACS (6 min)
 
@@ -37,7 +40,16 @@ Shared password: `backstage`. Keep `https://dashboard.apps.<cluster>/` open.
 5. Click **Approve Trip** → decision on `flow-in` (`approval.done`) → `booking.finalized` on `flow-out` with a simulated `MOS-…` reference.
 6. Optional: plan another trip and **Reject** — no booking event.
 
-## 4. Perses observability (3 min)
+## 4. CDC — Debezium PostgreSQL (6 min)
+
+1. Create → **CDC — Debezium PostgreSQL** (`orders-cdc`).
+2. Argo apps: `orders-cdc-build`, `orders-cdc-cdc` (Postgres + connector Job), `orders-cdc-dev|staging|prod`.
+3. Catalog → Overview: Vault card + API entity **order-change** → Apicurio UI.
+4. Open **CDC consumer UI** → wait for events.
+5. From a debug pod or Dev Spaces: `INSERT INTO orders …` / `UPDATE` / `DELETE` on the app Postgres.
+6. Kafka Console topic `orders-cdc.public.orders` + UI refresh.
+
+## 5. Perses observability (3 min)
 
 OpenShift console → **Observe → Dashboards (Perses)** → project `rhads-observability`:
 
@@ -46,16 +58,16 @@ OpenShift console → **Observe → Dashboards (Perses)** → project `rhads-obs
 
 Correlate message rates while approving a trip.
 
-## 5. Supply-chain promotion (10 min)
+## 6. Supply-chain promotion (10 min)
 
 Same RHADS beats as the base demo:
 
-1. Pipeline table: clone → gitsign → Maven → OpenShift Build → SBOM → cosign → ACS → TPA → Conforma (dev) → GitOps → Chains.
+1. Pipeline table: clone → gitsign → Maven/Go → OpenShift Build → SBOM → cosign → ACS → TPA → Conforma (dev) → GitOps → Chains.
 2. GitLab **tag** `v1.0.0` on the **unsigned** scaffold → staging Conforma STRICT **denies** `rhads_source.git_commit_signed`.
 3. Dev Spaces: signed commit (optionally with CVE bumps) → push → new build.
 4. Tag `v1.0.1` on signed commit → staging; **release** → production.
 
-## 6. Optional — Go template (5–8 min)
+## 7. Optional — Go template (5–8 min)
 
 Create → **Agentic Trip Planner — Go/Kafka** (`trip-go`).
 
@@ -68,8 +80,10 @@ Create → **Agentic Trip Planner — Go/Kafka** (`trip-go`).
 
 | URL | Purpose |
 | --- | --- |
-| Developer Hub | Scaffold only the two trip templates |
-| Trip UI | Plan / approve |
-| Kafka Console | `flow-in` / `flow-out` |
+| Developer Hub | Scaffold trip + CDC templates; Vault + Apicurio on Overview |
+| Trip UI / CDC UI | Plan / approve or watch DB changes |
+| Apicurio | `https://apicurio.apps.<cluster>/` schemas |
+| Vault | Secrets under `secret/apps/{app}` |
+| Kafka Console | `flow-in` / `flow-out` / `{app}.public.orders` |
 | Observe → Perses | Kafka + app dashboards |
 | TPA / ACS / Quay / Rekor | Supply chain evidence |

@@ -3,7 +3,7 @@ package com.tripplanner.resource;
 import com.tripplanner.model.TripApproval;
 import com.tripplanner.model.TripError;
 import com.tripplanner.model.TripPlanStatus;
-import com.tripplanner.agentic.flow.TripPlanStore;
+import com.tripplanner.store.TripPlanStore;
 import io.smallrye.reactive.messaging.ce.OutgoingCloudEventMetadata;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.Consumes;
@@ -27,8 +27,8 @@ public class TripApprovalResource {
     @Inject
     TripPlanStore store;
 
-    @Channel("flow-in-producer")
-    Emitter<TripApproval> flowIn;
+    @Channel("trip-in-producer")
+    Emitter<TripApproval> tripIn;
 
     @PUT
     @Path("/approve")
@@ -54,7 +54,7 @@ public class TripApprovalResource {
                 .build();
 
         try {
-            flowIn.send(Message.of(approval, Metadata.of(metadata)).withNack(failure -> {
+            tripIn.send(Message.of(approval, Metadata.of(metadata)).withNack(failure -> {
                 store.submissionFailed(submitted.requestId(), failure);
                 return CompletableFuture.completedFuture(null);
             }));

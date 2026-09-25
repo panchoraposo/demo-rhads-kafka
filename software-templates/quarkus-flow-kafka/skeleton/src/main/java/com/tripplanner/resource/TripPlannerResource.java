@@ -1,10 +1,10 @@
 package com.tripplanner.resource;
 
-import com.tripplanner.agentic.flow.TripPlanStore;
 import com.tripplanner.model.PlanningRequest;
 import com.tripplanner.model.TripError;
 import com.tripplanner.model.TripPlanStatus;
 import com.tripplanner.model.TripRequest;
+import com.tripplanner.store.TripPlanStore;
 import io.smallrye.reactive.messaging.ce.OutgoingCloudEventMetadata;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.Consumes;
@@ -34,14 +34,16 @@ public class TripPlannerResource {
     @Inject
     TripPlanStore tripPlanStore;
 
-    @Channel("flow-in-producer")
-    Emitter<PlanningRequest> flowInProducer;
+    @Channel("trip-in-producer")
+    Emitter<PlanningRequest> tripInProducer;
 
     @POST
     @Path("/plan")
     @Consumes(MediaType.APPLICATION_JSON)
     public Response planTrip(TripRequest request) {
-        if (request == null) return Response.status(400).entity(new TripError("invalid_request", "Trip details are required.")).build();
+        if (request == null) {
+            return Response.status(400).entity(new TripError("invalid_request", "Trip details are required.")).build();
+        }
         PlanningRequest input = tripPlanStore.register(request);
         OutgoingCloudEventMetadata<PlanningRequest> metadata = OutgoingCloudEventMetadata.<PlanningRequest>builder()
                 .withId(input.requestId())
@@ -50,7 +52,7 @@ public class TripPlannerResource {
                 .withDataContentType("application/json")
                 .build();
         try {
-            flowInProducer.send(Message.of(input, Metadata.of(metadata)).withNack(failure -> {
+            tripInProducer.send(Message.of(input, Metadata.of(metadata)).withNack(failure -> {
                 tripPlanStore.submissionFailed(input.requestId(), failure);
                 return CompletableFuture.completedFuture(null);
             }));
@@ -63,14 +65,14 @@ public class TripPlannerResource {
                 TripPlanStatus pending = tripPlanStore.byRequestId(input.requestId());
                 return Response.status(504).entity(new TripPlanStatus(pending.requestId(), pending.instanceId(),
                         pending.request(), pending.status(), pending.plan(), pending.confirmation(), "planning_timeout",
-                        "Planning is taking longer than expected. The workflow may still complete; check its status before retrying.")).build();
+                        "Planning is taking longer than expected. The agent may still complete; check its status before retrying.")).build();
             }
             int code = "failed".equals(result.status()) ? new TripError(result.error(), result.message()).httpStatus() : 200;
             return Response.status(code).entity(result).build();
         } catch (InterruptedException interrupted) {
             Thread.currentThread().interrupt();
             return Response.status(503).entity(new TripError("wait_interrupted",
-                    "The wait was interrupted. The workflow may still complete; check its status before retrying.")).build();
+                    "The wait was interrupted. The agent may still complete; check its status before retrying.")).build();
         }
     }
 
@@ -82,7 +84,9 @@ public class TripPlannerResource {
         }
         TripPlanStatus status = instanceId != null && !instanceId.isBlank()
                 ? tripPlanStore.byInstanceId(instanceId) : tripPlanStore.byRequestId(requestId);
-        if (status == null) return Response.status(404).entity(new TripError("unknown_trip", "The requested trip was not found.")).build();
+        if (status == null) {
+            return Response.status(404).entity(new TripError("unknown_trip", "The requested trip was not found.")).build();
+        }
         return Response.ok(status).build();
     }
 

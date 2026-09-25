@@ -1,0 +1,14 @@
+# Static catalog entry so Developer Hub always lists the platform registry.
+# App templates also register per-app API entities that point at Apicurio artifacts.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: apicurio-catalog-snippet
+  namespace: apicurio
+  labels:
+    app.kubernetes.io/part-of: rhads-demo
+data:
+  README: |
+    Platform Apicurio Registry UI: https://apicurio.CLUSTER_SUBDOMAIN_PLACEHOLDER/
+    Registry API: https://apicurio.CLUSTER_SUBDOMAIN_PLACEHOLDER/apis/registry/v2
+    Artifact groups: default (trip schemas), cdc (Debezium change events)

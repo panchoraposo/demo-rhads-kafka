@@ -24,8 +24,8 @@
 </head>
 <body>
 <header>
-  <h1>RHADS + Kafka — Agentic Trip Planner</h1>
-  <p>Supply chain + Streams for Apache Kafka HITL — OpenShift {{ cluster_base_domain }}</p>
+  <h1>RHADS + Kafka — Trip Planner + CDC</h1>
+  <p>Supply chain · Streams for Apache Kafka · Debezium · Apicurio · Vault — OpenShift {{ cluster_base_domain }}</p>
 </header>
 <main>
   <section>
@@ -45,6 +45,7 @@
       <tr><td>Nexus</td><td><a href="{{ dash_nexus_url }}">{{ dash_nexus_url }}</a></td><td>admin</td><td>admin123</td></tr>
       <tr><td>HashiCorp Vault</td><td><a href="{{ dash_vault_url }}">{{ dash_vault_url }}</a></td><td>vaultadmin</td><td>{{ common_user_password }}</td></tr>
       <tr><td>Kafka Console</td><td><a href="{{ dash_kafka_console_url }}">{{ dash_kafka_console_url }}</a></td><td>OpenShift login</td><td>—</td></tr>
+      <tr><td>Apicurio Registry</td><td><a href="{{ dash_apicurio_url }}">{{ dash_apicurio_url }}</a></td><td>—</td><td>—</td></tr>
       <tr><td>Perses dashboards</td><td>Observe → Dashboards (Perses) → <code>rhads-observability</code></td><td>OpenShift login</td><td>—</td></tr>
     </table>
   </section>
@@ -52,9 +53,9 @@
     <h2>Live script</h2>
     <ul>
       <li>Sign in to Developer Hub as <code>dev1</code></li>
-      <li>Create → <strong>Quarkus Flow/Kafka</strong> or <strong>Go/Kafka</strong> trip planner only</li>
-      <li>Dev Spaces → RHDA on <code>pom.xml</code> / <code>go.mod</code></li>
-      <li>Trip UI → plan → Kafka Console <code>flow-in</code>/<code>flow-out</code> → Approve</li>
+      <li>Create → <strong>Quarkus Flow/Kafka</strong>, <strong>Go/Kafka</strong>, or <strong>Debezium CDC</strong></li>
+      <li>Dev Spaces → RHDA; Hub → Vault secrets + Apicurio schemas</li>
+      <li>Trip UI / CDC UI → Kafka Console → Approve / watch changes</li>
       <li>Observe → Dashboards (Perses)</li>
       <li>TPA SBOM · ACS · signed commit · tag/release Conforma</li>
     </ul>

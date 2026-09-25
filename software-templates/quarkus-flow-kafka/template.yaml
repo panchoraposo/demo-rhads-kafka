@@ -2,14 +2,13 @@ apiVersion: scaffolder.backstage.io/v1beta3
 kind: Template
 metadata:
   name: quarkus-flow-kafka
-  title: Agentic Trip Planner — Quarkus Flow/Kafka
-  description: "Agentic trip planner on Red Hat build of Quarkus 3.33 with Quarkus Flow (community) + Kafka CloudEvents HITL, MaaS, and the same RHADS pipelines (Nexus, Builds, SBOM, cosign, ACS, Conforma) as other Quarkus templates."
+  title: Agentic Trip Planner — LangChain4j/Kafka
+  description: "Agentic trip planner on Red Hat build of Quarkus 3.33 with Red Hat langchain4j agents + Kafka CloudEvents HITL, MaaS, and the same RHADS pipelines (Nexus, Builds, SBOM, cosign, ACS, Conforma) as other Quarkus templates."
   tags:
     - recommended
     - quarkus
     - java
     - agentic
-    - flow
     - kafka
     - langchain4j
     - rhads
@@ -37,7 +36,7 @@ spec:
         description:
           title: Description
           type: string
-          default: Agentic Trip Planner (Quarkus Flow + Kafka + MaaS)
+          default: Agentic Trip Planner (LangChain4j + Kafka + MaaS)
         owner:
           title: Owner
           type: string

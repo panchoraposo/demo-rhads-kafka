@@ -12,5 +12,5 @@ __pycache__/
 /tmp/
 .idea/
 *.retry
-inventory.yml
-!ansible/inventory.example.yml
+local/apps/
+

@@ -1,0 +1,80 @@
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: ${{values.component_id | dump}}
+  {%- if values.description %}
+  description: ${{values.description | dump}}
+  {%- endif %}
+  annotations:
+    argocd/app-selector: rht-gitops.com/${{ values.gitops_namespace }}=${{values.component_id}}
+    argocd/instance-name: main
+    backstage.io/kubernetes-id: ${{values.component_id}}
+    backstage.io/kubernetes-cluster: demo-cluster
+    janus-idp.io/tekton: ${{values.component_id}}
+    tekton.dev/cicd: "true"
+    # HashiCorp Vault plugin — EntityVaultCard on Overview
+    vault.io/secrets-path: apps/${{values.component_id}}
+    quay.io/repository-slug: '${{values.image_organization}}/${{values.component_id}}'
+    backstage.io/source-location: url:https://${{values.host}}/${{values.destination}}
+    backstage.io/techdocs-ref: url:https://${{values.host}}/${{values.destination}}
+    gitlab.com/project-slug: ${{values.destination}}
+  tags:
+    - cdc
+    - debezium
+    - postgres
+    - kafka
+    - go
+    - apicurio
+  links:
+    - url: https://${{values.component_id}}-${{values.component_id}}-dev.${{values.cluster_subdomain}}
+      title: CDC consumer UI (dev)
+      icon: web
+    - url: https://kafka-console.${{values.cluster_subdomain}}
+      title: Kafka Console
+      icon: web
+    - url: https://apicurio.${{values.cluster_subdomain}}/ui/artifacts/${{values.component_id}}/order-change/versions/latest
+      title: Apicurio — order-change schema
+      icon: catalog
+    - url: https://vault.${{values.cluster_subdomain}}/ui/vault/secrets/secret/list/apps/${{values.component_id}}
+      title: Vault secrets
+      icon: catalog
+    - url: https://devspaces.${{values.cluster_subdomain}}/#https://${{values.host}}/${{values.destination}}
+      title: OpenShift Dev Spaces (VS Code)
+      icon: web
+    - url: https://quay.${{values.cluster_subdomain}}/repository/${{values.image_organization}}/${{values.component_id}}
+      title: Quay image + signatures
+      icon: catalog
+spec:
+  type: service
+  lifecycle: development
+  owner: group:default/${{values.owner}}
+  system: system:default/rhads-platform
+  providesApis:
+    - ${{values.component_id}}-order-change
+---
+# Schema artifact managed in Red Hat build of Apicurio Registry — visible in Developer Hub.
+apiVersion: backstage.io/v1alpha1
+kind: API
+metadata:
+  name: ${{values.component_id}}-order-change
+  description: Avro schema for Debezium CDC order change events (Apicurio group ${{values.component_id}})
+  annotations:
+    apicurio.io/registry-url: https://apicurio.${{values.cluster_subdomain}}
+    apicurio.io/group: ${{values.component_id}}
+    apicurio.io/artifact: order-change
+  tags:
+    - avro
+    - cdc
+    - debezium
+    - apicurio
+  links:
+    - url: https://apicurio.${{values.cluster_subdomain}}/ui/artifacts/${{values.component_id}}/order-change/versions/latest
+      title: Open in Apicurio Registry
+      icon: catalog
+spec:
+  type: asyncapi
+  lifecycle: development
+  owner: group:default/${{values.owner}}
+  system: system:default/rhads-platform
+  definition:
+    $text: ./schemas/order-change.asyncapi.yaml

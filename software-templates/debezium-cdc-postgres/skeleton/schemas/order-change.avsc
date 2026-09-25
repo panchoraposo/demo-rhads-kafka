@@ -1,0 +1,14 @@
+{
+  "type": "record",
+  "name": "OrderChange",
+  "namespace": "com.rhads.cdc",
+  "doc": "Canonical order change event after Debezium CDC (demo). Registered in Apicurio as {component}/order-change.",
+  "fields": [
+    { "name": "id", "type": "long" },
+    { "name": "customer", "type": "string" },
+    { "name": "amount", "type": "double" },
+    { "name": "status", "type": "string" },
+    { "name": "op", "type": "string", "doc": "c|u|d|r from Debezium" },
+    { "name": "ts_ms", "type": ["null", "long"], "default": null }
+  ]
+}

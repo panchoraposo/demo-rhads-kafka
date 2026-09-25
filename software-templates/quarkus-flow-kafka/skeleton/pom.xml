@@ -14,7 +14,6 @@
         <quarkus.platform.artifact-id>quarkus-bom</quarkus.platform.artifact-id>
         <quarkus.platform.group-id>com.redhat.quarkus.platform</quarkus.platform.group-id>
         <quarkus.platform.version>3.33.3.redhat-00001</quarkus.platform.version>
-        <quarkus-flow.version>1.1.1</quarkus-flow.version>
         <skipITs>true</skipITs>
         <surefire-plugin.version>3.5.4</surefire-plugin.version>
     </properties>
@@ -35,13 +34,6 @@
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
-            <dependency>
-                <groupId>io.quarkiverse.flow</groupId>
-                <artifactId>quarkus-flow-bom</artifactId>
-                <version>${quarkus-flow.version}</version>
-                <type>pom</type>
-                <scope>import</scope>
-            </dependency>
         </dependencies>
     </dependencyManagement>
 
@@ -59,24 +51,8 @@
             <artifactId>quarkus-langchain4j-openai</artifactId>
         </dependency>
         <dependency>
-            <groupId>io.quarkiverse.langchain4j</groupId>
-            <artifactId>quarkus-langchain4j-skills</artifactId>
-        </dependency>
-        <dependency>
             <groupId>io.quarkus</groupId>
             <artifactId>quarkus-arc</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>io.quarkiverse.flow</groupId>
-            <artifactId>quarkus-flow</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>io.quarkiverse.flow</groupId>
-            <artifactId>quarkus-flow-messaging</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>io.quarkiverse.flow</groupId>
-            <artifactId>quarkus-flow-langchain4j</artifactId>
         </dependency>
         <dependency>
             <groupId>io.quarkus</groupId>

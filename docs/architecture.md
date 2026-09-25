@@ -32,16 +32,19 @@ RHADS base (Keycloak, RHDH, Dev Spaces, GitLab, Pipelines, Nexus, Quay, RHTAS, T
 | --- | --- |
 | Streams for Apache Kafka | `kafka` — `Kafka`/`KafkaNodePool` `rhads-kafka`, topics `flow-in`/`flow-out` |
 | Kafka Console | `kafka-console` — Console CR, host `kafka-console.apps.<cluster>` |
+| Red Hat build of Apicurio Registry | `apicurio` — `ApicurioRegistry` `rhads-registry` (KafkaSQL), host `apicurio.apps.<cluster>` |
+| Red Hat build of Debezium | `debezium` — shared `KafkaConnect` `rhads-debezium` (Postgres plugin); apps add `KafkaConnector` only |
 | Cluster Observability Operator | UIPlugin Monitoring + Perses; dashboards in `rhads-observability` |
 
-Platform routes use **short hostnames** (`<component>.apps.<cluster>`), for example `quay.apps…`, `gitlab.apps…`, `rhdh.apps…`, `argocd.apps…`, `acs.apps…`, `nexus.apps…`, `vault.apps…` (not the default OpenShift `<route>-<namespace>.apps…` form).
+Platform routes use **short hostnames** (`<component>.apps.<cluster>`), for example `quay.apps…`, `gitlab.apps…`, `rhdh.apps…`, `argocd.apps…`, `acs.apps…`, `nexus.apps…`, `vault.apps…`, `apicurio.apps…` (not the default OpenShift `<route>-<namespace>.apps…` form).
 
 ## Software templates (catalog)
 
-Only two scaffolder templates are registered in `catalog/templates.yaml`:
+Three scaffolder templates are registered in `catalog/templates.yaml`:
 
-1. **quarkus-flow-kafka** — Trip planner from the [LangChain4j workshop step-04](https://quarkus.io/quarkus-workshop-langchain4j/section-3/step-04/) pattern: Quarkus Flow (community) + Kafka CloudEvents + MaaS.
-2. **go-flow-kafka** — Same API and CloudEvents types; hand-rolled Kafka workflow engine; community Go modules for RHDA/TPA/ACS CVEs.
+1. **quarkus-flow-kafka** — Trip planner from the [LangChain4j workshop step-04](https://quarkus.io/quarkus-workshop-langchain4j/section-3/step-04/) pattern: Red Hat langchain4j agents + Kafka CloudEvents HITL + MaaS.
+2. **go-flow-kafka** — Same UI, plan JSON, multi-step MaaS agents, and CloudEvents HITL as Quarkus; hand-rolled Kafka engine with structured logs; community Go modules for RHDA/TPA/ACS CVEs.
+3. **debezium-cdc-postgres** — Postgres + Debezium CDC connector (shared Connect) + Go consumer UI + Apicurio schema registration. Developers never build KafkaConnect themselves.
 
 ```mermaid
 flowchart TD
@@ -57,10 +60,23 @@ flowchart TD
   FlowOut --> Console
 ```
 
+```mermaid
+flowchart LR
+  PG[(Postgres orders)] -->|WAL pgoutput| DBZ[rhads-debezium]
+  DBZ -->|topic app.public.orders| K[Kafka]
+  K --> UI[Go CDC consumer]
+  Schema[Apicurio order-change] -.-> UI
+  Vault[Vault apps/app] -.-> Hub[Developer Hub]
+  Schema -.-> Hub
+```
+
 ## CI / supply chain
 
 Unchanged from demo-rhads: Tekton build/promote, Syft SBOM to TPA, cosign + Rekor, ACS, Conforma STRICT on tag/release, Tekton Chains. Dependencies resolve through **Nexus** (`maven-public`, `npm-group`, `go-group`). Go apps use `build.language: go`: Tekton `rhads-build-source` runs `go mod tidy` + `go mod vendor` via Nexus, then the image build compiles with `-mod=vendor` (offline). The default Go image is **community** (`golang` + `debian`); `Dockerfile.ubi` swaps to Red Hat UBI for an ACS CVE contrast.
 
-## Secrets
+## Secrets and schemas in Developer Hub
 
-MaaS credentials for both templates: Vault `secret/apps/{app}` via ExternalSecret in app namespaces. Kafka bootstrap defaults to `rhads-kafka-kafka-bootstrap.kafka.svc:9092` (internal plain listener for the demo).
+- **Vault plugin**: every new app sets `vault.io/secrets-path: apps/{component_id}`. Overview shows the HashiCorp Vault card (DB / MaaS keys seeded by the build chart).
+- **Apicurio**: trip templates link to shared CloudEvents artifacts; CDC registers `{component_id}/order-change` and exposes an API entity + Apicurio UI link in the catalog.
+
+Kafka bootstrap defaults to `rhads-kafka-kafka-bootstrap.kafka.svc:9092` (internal plain listener for the demo).

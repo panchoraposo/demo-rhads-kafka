@@ -1,15 +1,16 @@
 package com.tripplanner.agentic.agents;
 
-import com.tripplanner.model.TripPlan;
 import com.tripplanner.guardrails.TripAppropriatenessGuardrail;
-import dev.langchain4j.service.guardrail.OutputGuardrails;
+import com.tripplanner.model.TripPlan;
 import com.tripplanner.model.VehicleEvaluation;
 import dev.langchain4j.agentic.Agent;
-import dev.langchain4j.agentic.declarative.ChatModelSupplier;
-import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.service.UserMessage;
-import io.quarkiverse.langchain4j.agentic.runtime.CdiBean;
+import dev.langchain4j.service.guardrail.OutputGuardrails;
 
+/**
+ * Revises vehicle recommendations. Uses the default ChatModel from the RH langchain4j BOM
+ * (dynamic @CdiBean ChatModelSupplier is not available in quarkus-langchain4j-agentic 1.7.6).
+ */
 public interface VehicleReviser {
 
     @UserMessage("""
@@ -36,10 +37,4 @@ public interface VehicleReviser {
                                           String budget,
                                           String destination,
                                           String preferences);
-
-    @ChatModelSupplier
-    static ChatModel chatModel(@CdiBean DynamicModelSelector modelSelector,
-                               VehicleEvaluation evaluation) {
-        return modelSelector.select(evaluation);
-    }
 }
