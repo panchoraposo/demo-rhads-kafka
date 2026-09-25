@@ -43,7 +43,7 @@ gitlab_namespace: gitlab
 gitlab_release_name: gitlab
 # Official GitLab CE omnibus (latest 19.x patch at the time of this demo).
 # sameersbn/GPTE images stop at 17.x and cannot be upgraded in place to 19.
-gitlab_image: docker.io/gitlab/gitlab-ce:19.3.0-ce.0
+gitlab_image: docker.io/gitlab/gitlab-ce:19.4.1-ce.0
 gitlab_root_password: "{{ common_user_password }}"
 gitlab_users_password: "{{ common_user_password }}"
 gitlab_config_root_password: "{{ common_user_password }}"

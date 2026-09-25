@@ -1,5 +1,5 @@
 gitlab:
-  image: {{ gitlab_image | default('docker.io/gitlab/gitlab-ce:19.3.0-ce.0') }}
+  image: {{ gitlab_image | default('docker.io/gitlab/gitlab-ce:19.4.1-ce.0') }}
 
   host: "{{ gitlab_hostname }}"
   https: "true"
