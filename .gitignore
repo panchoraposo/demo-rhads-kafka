@@ -12,5 +12,6 @@ __pycache__/
 /tmp/
 .idea/
 *.retry
-local/apps/
+# Laptop-only smoke tests (Compose + materialized apps). Never commit.
+local/
 

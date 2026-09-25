@@ -43,7 +43,7 @@ Developer Hub  ──template──► GitLab (source + *-gitops)
 
 Details: [docs/architecture.md](docs/architecture.md). Live script: [docs/demo-script.md](docs/demo-script.md). Credentials: [docs/credentials.md](docs/credentials.md).
 
-**Local (laptop):** materialize the three template apps and run them against Podman Compose Kafka — see [local/README.md](local/README.md).
+**Local (laptop):** optional untracked `local/` workspace (Podman Compose + materialized template apps) for smoke tests before the cluster. It is gitignored and not part of this repository.
 
 ## Prerequisites
 
