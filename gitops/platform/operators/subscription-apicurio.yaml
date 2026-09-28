@@ -6,7 +6,7 @@ metadata:
   labels:
     app.kubernetes.io/part-of: rhads-demo
 spec:
-  channel: 2.6.x
+  channel: 2.x
   installPlanApproval: Automatic
   name: service-registry-operator
   source: redhat-operators
