@@ -45,7 +45,7 @@ spec:
                         - python3 /opt/app-root/src/inject-camel-topology-icon.py || true
             initContainers:
               - name: wait-for-sso
-                image: registry.redhat.io/openshift4/ose-cli:latest
+                image: registry.redhat.io/openshift4/ose-cli-rhel9:v4.22
                 command: ["/bin/bash", "-c"]
                 args:
                   - |

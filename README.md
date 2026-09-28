@@ -6,7 +6,7 @@
 | --- | --- | --- |
 | **Agentic Trip Planner — LangChain4j/Kafka** | `trip-quarkus` | RHBOQ 3.33 + Red Hat [langchain4j](https://docs.quarkiverse.io/quarkus-langchain4j/dev/) agents + Kafka CloudEvents HITL |
 | **Agentic Trip Planner — Go/Kafka** | `trip-go` | Go + same UI/plan JSON + multi-step MaaS + Kafka HITL; community modules/images (ACS CVEs); switch to `Dockerfile.ubi` for Red Hat UBI |
-| **CDC — Debezium PostgreSQL** | `orders-cdc` | Postgres + shared Debezium KafkaConnect + Go consumer + Apicurio schemas + Vault secrets card |
+| **CDC — Debezium PostgreSQL** | `orders-cdc` | Postgres + shared Debezium + Order Desk UI (write DB → live CDC) + Apicurio + Vault |
 
 This GitHub repository is the **source of truth for a repeatable install**. Clone it, log in to a cluster, run `./install.sh`. Ansible publishes the working tree to in-cluster GitLab and points Argo CD at that copy.
 
@@ -35,7 +35,7 @@ GitHub (this repo)  ──install.sh──► cluster (operators + Kafka + Apicu
 Developer Hub  ──template──► GitLab (source + *-gitops)
       │                         │
       └── Dev Spaces            ├── push → Nexus + Builds + SBOM + cosign + ACS + TPA → dev
-         RHDA / gitsign         ├── Trip UI / CDC UI → Kafka → Approve or DB changes
+         RHDA / gitsign         ├── Trip UI / CDC Order Desk → Kafka → Approve or live CDC
                                 ├── Apicurio schemas (catalog API + UI links)
                                 ├── Vault secrets card on the component
                                 └── Kafka Console + Observe → Dashboards (Perses)
@@ -48,7 +48,7 @@ Details: [docs/architecture.md](docs/architecture.md). Live script: [docs/demo-s
 ## Prerequisites
 
 - OpenShift **4.20+** with `cluster-admin` (typical sandbox: **16 CPU / 64 Gi**; Kafka + COO + Debezium need extra headroom).
-- Storage class **`gp3-csi`**. ODF Multicloud Object Gateway for ObjectBucketClaims.
+- A default StorageClass (e.g. `gp3-csi` or ODF RBD). ODF Multicloud Object Gateway for ObjectBucketClaims.
 - `oc` logged in. `python3`. Helm 3 is installed by `install.sh` if missing.
 
 ## Installation
@@ -83,7 +83,7 @@ After install, GitOps self-heals from **GitLab**. Commit platform changes to Git
 3. Create → **CDC — Debezium PostgreSQL** — no Connect build; shared platform Connect + Postgres + schema registration.
 4. On the new component Overview: **Vault** card (`apps/{name}`) and **Apicurio** API / links.
 5. Dev Spaces → RHDA on `pom.xml` / `go.mod` → TPA SBOM → ACS.
-6. Trip UI → plan → Kafka Console → **Approve**. CDC UI → `INSERT` into Postgres → events on `{app}.public.orders`.
+6. Trip UI → plan → Kafka Console → **Approve**. CDC Order Desk → **New order** / **Mark paid** → events on `{app}.public.orders`.
 7. OpenShift console → **Observe → Dashboards (Perses)**.
 8. Continue the RHADS promotion story as in [docs/demo-script.md](docs/demo-script.md).
 

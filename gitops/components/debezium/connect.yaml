@@ -72,7 +72,7 @@ spec:
       serviceAccountName: debezium-bootstrap
       containers:
         - name: copy
-          image: registry.redhat.io/openshift4/ose-cli:latest
+          image: registry.redhat.io/openshift4/ose-cli-rhel9:v4.22
           command: ["/bin/bash", "-c"]
           args:
             - |

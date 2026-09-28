@@ -17,7 +17,7 @@ spec:
       - id: 0
         type: persistent-claim
         size: 20Gi
-        class: gp3-csi
+        # Omit class → cluster default StorageClass (gp3-csi, ODF RBD, etc.).
         deleteClaim: true
         kraftMetadata: shared
 ---

@@ -20,7 +20,7 @@ spec:
       serviceAccountName: {{ include "cdc.name" . }}-cdc
       containers:
         - name: apply-connector
-          image: registry.redhat.io/openshift4/ose-cli:latest
+          image: registry.redhat.io/openshift4/ose-cli-rhel9:v4.22
           env:
             - name: COMPONENT_ID
               value: {{ include "cdc.name" . | quote }}

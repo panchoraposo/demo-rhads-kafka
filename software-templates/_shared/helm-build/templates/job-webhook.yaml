@@ -107,7 +107,7 @@ spec:
       restartPolicy: OnFailure
       containers:
         - name: hook
-          image: registry.redhat.io/openshift4/ose-cli:latest
+          image: registry.redhat.io/openshift4/ose-cli-rhel9:v4.22
           command: ["/bin/bash", "/scripts/create.sh"]
           env:
             - name: TOKEN
