@@ -115,8 +115,9 @@ data:
                       if:
                         allOf:
                           - isGitlabAvailable
-      # HashiCorp Vault — list secrets for entities with vault.io/secrets-path
-      - package: oci://ghcr.io/redhat-developer/rhdh-plugin-export-overlays/backstage-community-plugin-vault:{{inherit}}
+      # HashiCorp Vault — not in the RHDH catalog index, so {{inherit}} fails.
+      # Pin explicit overlay tags (frontend/backend pair from pr_1225).
+      - package: oci://ghcr.io/redhat-developer/rhdh-plugin-export-overlays/backstage-community-plugin-vault:pr_1225__0.19.0!backstage-community-plugin-vault
         disabled: false
         pluginConfig:
           dynamicPlugins:
@@ -130,5 +131,5 @@ data:
                         gridColumnEnd:
                           lg: "span 6"
                           xs: "span 12"
-      - package: oci://ghcr.io/redhat-developer/rhdh-plugin-export-overlays/backstage-community-plugin-vault-backend:{{inherit}}
+      - package: oci://ghcr.io/redhat-developer/rhdh-plugin-export-overlays/backstage-community-plugin-vault-backend:pr_1225__0.21.0!backstage-community-plugin-vault-backend
         disabled: false
