@@ -8,7 +8,7 @@
 #
 # Pod scheduling: use OpenShift node-role labels only (no kubernetes.io/hostname).
 # Worker-only affinity: node-role.kubernetes.io/worker Exists + control-plane DoesNotExist.
-# PVCs omit storageClassName so they bind the cluster default StorageClass.
+# PVCs omit storageClassName so they bind each environment's default StorageClass.
 validate_ssl_certs: false
 common_user_password: "backstage"
 

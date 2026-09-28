@@ -48,7 +48,7 @@ Details: [docs/architecture.md](docs/architecture.md). Live script: [docs/demo-s
 ## Prerequisites
 
 - OpenShift **4.20+** with `cluster-admin` (typical sandbox: **16 CPU / 64 Gi**; Kafka + COO + Debezium need extra headroom).
-- A default StorageClass (e.g. `gp3-csi` or ODF RBD). ODF Multicloud Object Gateway for ObjectBucketClaims.
+- A **default** StorageClass (whatever the cluster provides). PVCs omit `storageClassName`. ODF Multicloud Object Gateway for ObjectBucketClaims.
 - `oc` logged in. `python3`. Helm 3 is installed by `install.sh` if missing.
 
 ## Installation
