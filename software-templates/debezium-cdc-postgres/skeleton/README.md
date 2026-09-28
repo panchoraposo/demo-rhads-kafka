@@ -29,12 +29,22 @@ No debug-pod SQL required on stage.
 
 ## Local run (laptop, untracked `local/`)
 
-Compose Postgres + Kafka, then:
+From the demo repo:
 
 ```bash
-export KAFKA_BOOTSTRAP_SERVERS=localhost:9092
+cd local
+podman-compose up -d          # Kafka :9092 + Postgres :5432 (required)
+./materialize.sh              # copy this skeleton → apps/orders-cdc
+./run-cdc.sh                  # http://127.0.0.1:8083  (LOCAL_CDC_FANOUT=true)
+./demo-cdc-traffic.sh 6       # optional CREATE/UPDATE/DELETE load
+```
+
+Or run the binary directly (use `127.0.0.1` to avoid IPv6 `localhost` misses):
+
+```bash
+export KAFKA_BOOTSTRAP_SERVERS=127.0.0.1:9092
 export KAFKA_TOPIC=${{values.kafka_topic}}
-export DATABASE_HOST=localhost
+export DATABASE_HOST=127.0.0.1
 export DATABASE_USER=orders
 export DATABASE_PASSWORD=backstage
 export DATABASE_NAME=orders
