@@ -77,6 +77,14 @@ kafka:
 apicurio:
   url: http://rhads-registry-service.apicurio.svc:8080
 
+# Order Desk writes (dev). Staging/prod can leave enabled=false.
+db:
+  enabled: false
+  # Secret created by the CDC chart in the same namespace (dev).
+  secretName: ""
+  host: ""
+  port: "5432"
+
 autoscaling:
   enabled: false
 

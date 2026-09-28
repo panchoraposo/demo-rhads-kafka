@@ -7,4 +7,5 @@ metadata:
     argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
 spec:
   generateBucketName: quay-datastore
+  # ObjectBucketClaim provisioner (ODF Multicloud Object Gateway), not a block StorageClass.
   storageClassName: openshift-storage.noobaa.io

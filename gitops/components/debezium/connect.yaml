@@ -34,14 +34,17 @@ spec:
     plugins:
       - name: debezium-postgres-connector
         artifacts:
-          # Red Hat build of Debezium — PostgreSQL connector plugin (GA maven).
-          - type: tgz
-            url: https://maven.repository.redhat.com/ga/io/debezium/debezium-connector-postgres/2.7.3.Final-redhat-00001/debezium-connector-postgres-2.7.3.Final-redhat-00001-plugin.tar.gz
+          # Red Hat build of Debezium — PostgreSQL connector plugin (GA maven; zip, not tgz).
+          - type: zip
+            url: https://maven.repository.redhat.com/ga/io/debezium/debezium-connector-postgres/3.0.8.Final-redhat-00004/debezium-connector-postgres-3.0.8.Final-redhat-00004-plugin.zip
   template:
     pod:
       metadata:
         labels:
           app.kubernetes.io/part-of: rhads-demo
+      # Same robot secret used to push the Connect build image.
+      imagePullSecrets:
+        - name: quay-dockerconfig
       affinity:
         nodeAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
@@ -60,12 +63,15 @@ metadata:
   labels:
     app.kubernetes.io/part-of: rhads-demo
   annotations:
-    argocd.argoproj.io/hook: PreSync
+    # Sync hook (not PreSync): wave -10 RBAC is applied first; Argo waits for this Job
+    # before wave-0 KafkaConnect so pushSecret exists.
+    argocd.argoproj.io/hook: Sync
     argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
     argocd.argoproj.io/sync-wave: "-5"
     argocd.argoproj.io/sync-options: Replace=true
 spec:
   backoffLimit: 6
+  ttlSecondsAfterFinished: 600
   template:
     spec:
       restartPolicy: OnFailure
@@ -85,7 +91,11 @@ spec:
                 echo "waiting for quay-dockerconfig (${i}/36)"
                 sleep 10
               done
-              oc -n rhads-ci get secret quay-dockerconfig -o json \
-                | sed 's/"namespace": "rhads-ci"/"namespace": "debezium"/' \
-                | oc apply -f -
+              # Recreate without copying uid/resourceVersion (oc apply conflict).
+              mkdir -p /tmp/qd
+              oc -n rhads-ci extract secret/quay-dockerconfig --to=/tmp/qd --confirm
+              oc -n debezium create secret generic quay-dockerconfig \
+                --from-file=.dockerconfigjson=/tmp/qd/.dockerconfigjson \
+                --type=kubernetes.io/dockerconfigjson \
+                --dry-run=client -o yaml | oc apply -f -
               echo "PASS: quay-dockerconfig in debezium"

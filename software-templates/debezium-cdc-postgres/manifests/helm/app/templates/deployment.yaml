@@ -45,6 +45,35 @@ spec:
               value: /web
             - name: PORT
               value: {{ .Values.service.port | quote }}
+            - name: COMPONENT_ID
+              value: {{ include "quarkus-template.name" . | quote }}
+            {{- if .Values.db.enabled }}
+            - name: DATABASE_HOST
+              value: {{ .Values.db.host | default (printf "%s-postgres" (include "quarkus-template.name" .)) | quote }}
+            - name: DATABASE_PORT
+              value: {{ .Values.db.port | default "5432" | quote }}
+            - name: DATABASE_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.db.secretName | default (printf "%s-db-credentials" (include "quarkus-template.name" .)) }}
+                  key: POSTGRES_USER
+            - name: DATABASE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.db.secretName | default (printf "%s-db-credentials" (include "quarkus-template.name" .)) }}
+                  key: POSTGRES_PASSWORD
+            - name: DATABASE_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.db.secretName | default (printf "%s-db-credentials" (include "quarkus-template.name" .)) }}
+                  key: POSTGRES_DB
+            - name: DATABASE_SSLMODE
+              value: disable
+            {{- end }}
+            {{- if .Values.localCdcFanout }}
+            - name: LOCAL_CDC_FANOUT
+              value: "true"
+            {{- end }}
           ports:
             - name: http
               containerPort: {{ .Values.service.port }}

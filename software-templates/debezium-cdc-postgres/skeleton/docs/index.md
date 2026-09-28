@@ -10,12 +10,10 @@ Postgres **CDC** with the shared Red Hat build of Debezium (`rhads-debezium` Kaf
 | Apicurio group / artifact | `${{values.component_id}}` / `order-change` |
 | Vault path | `secret/apps/${{values.component_id}}` |
 
-## Trigger events
+## Live demo
 
-```sql
-INSERT INTO orders (customer, amount, status) VALUES ('demo', 10.00, 'new');
-UPDATE orders SET status = 'paid' WHERE customer = 'demo';
-DELETE FROM orders WHERE customer = 'demo';
-```
+Open the Order Desk UI:
 
-Watch the consumer UI and Kafka Console (`${{values.kafka_topic}}`).
+1. **New order** — write Postgres; Debezium captures; feed flashes.
+2. **Mark paid** / **Cancel** — UPDATE with before → after.
+3. Optional Kafka Console on `${{values.kafka_topic}}`.

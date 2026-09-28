@@ -101,6 +101,22 @@
   ansible.builtin.set_fact:
     vault_rhdh_token: "{{ vault_rhdh_token_cmd.stdout | default('') }}"
 
+# Full installs set gitlab_pat in gitlab-config; resumes / partial runs load it from rhads-ci.
+- name: Load GitLab PAT from rhads-ci when unset
+  when: gitlab_pat is not defined or (gitlab_pat | default('') | length) == 0
+  block:
+    - name: Read gitlab-token secret
+      ansible.builtin.command:
+        cmd: oc --context {{ oc_context }} -n rhads-ci extract secret/gitlab-token --to=- --keys=token
+      register: gitlab_pat_secret
+      changed_when: false
+      no_log: true
+
+    - name: Set gitlab_pat from secret
+      ansible.builtin.set_fact:
+        gitlab_pat: "{{ gitlab_pat_secret.stdout | trim }}"
+      no_log: true
+
 - name: Create backstage-env
   kubernetes.core.k8s:
     state: present

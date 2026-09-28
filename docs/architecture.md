@@ -62,10 +62,11 @@ flowchart TD
 
 ```mermaid
 flowchart LR
-  PG[(Postgres orders)] -->|WAL pgoutput| DBZ[rhads-debezium]
+  Desk[Order Desk UI] -->|SQL write| PG[(Postgres orders)]
+  PG -->|WAL pgoutput| DBZ[rhads-debezium]
   DBZ -->|topic app.public.orders| K[Kafka]
-  K --> UI[Go CDC consumer]
-  Schema[Apicurio order-change] -.-> UI
+  K --> Desk
+  Schema[Apicurio order-change] -.-> Desk
   Vault[Vault apps/app] -.-> Hub[Developer Hub]
   Schema -.-> Hub
 ```

@@ -45,9 +45,12 @@ Shared password: `backstage`. Keep `https://dashboard.apps.<cluster>/` open.
 1. Create → **CDC — Debezium PostgreSQL** (`orders-cdc`).
 2. Argo apps: `orders-cdc-build`, `orders-cdc-cdc` (Postgres + connector Job), `orders-cdc-dev|staging|prod`.
 3. Catalog → Overview: Vault card + API entity **order-change** → Apicurio UI.
-4. Open **CDC consumer UI** → wait for events.
-5. From a debug pod or Dev Spaces: `INSERT INTO orders …` / `UPDATE` / `DELETE` on the app Postgres.
-6. Kafka Console topic `orders-cdc.public.orders` + UI refresh.
+4. Open **CDC Order Desk** (dev Route).
+5. Click **New order** — pipeline strip pulses; event feed shows `CREATE` with capture latency.
+6. Select the row → **Mark paid** — `UPDATE` with expandable before → after.
+7. Optional: Kafka Console topic `orders-cdc.public.orders`; Apicurio artifact from the header link.
+
+No debug-pod SQL on stage — the UI writes Postgres and Debezium captures it.
 
 ## 5. Perses observability (3 min)
 
@@ -81,7 +84,7 @@ Create → **Agentic Trip Planner — Go/Kafka** (`trip-go`).
 | URL | Purpose |
 | --- | --- |
 | Developer Hub | Scaffold trip + CDC templates; Vault + Apicurio on Overview |
-| Trip UI / CDC UI | Plan / approve or watch DB changes |
+| Trip UI / CDC Order Desk | Plan / approve; create / pay / cancel orders live |
 | Apicurio | `https://apicurio.apps.<cluster>/` schemas |
 | Vault | Secrets under `secret/apps/{app}` |
 | Kafka Console | `flow-in` / `flow-out` / `{app}.public.orders` |

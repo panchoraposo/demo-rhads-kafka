@@ -143,6 +143,8 @@ spec:
           topic: ${{ values.component_id }}.public.orders
         apicurio:
           url: http://rhads-registry-service.apicurio.svc:8080
+        db:
+          enabled: true
   destination:
     server: https://kubernetes.default.svc
     namespace: ${{ values.namespace }}
@@ -193,6 +195,8 @@ spec:
           topic: ${{ values.component_id }}.public.orders
         apicurio:
           url: http://rhads-registry-service.apicurio.svc:8080
+        db:
+          enabled: false
   destination:
     server: https://kubernetes.default.svc
     namespace: ${{ values.component_id }}-staging
@@ -243,6 +247,8 @@ spec:
           topic: ${{ values.component_id }}.public.orders
         apicurio:
           url: http://rhads-registry-service.apicurio.svc:8080
+        db:
+          enabled: false
   destination:
     server: https://kubernetes.default.svc
     namespace: ${{ values.component_id }}-prod

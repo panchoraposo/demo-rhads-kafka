@@ -83,24 +83,28 @@
   when: rhads_manage_keycloak is not defined
 
 - name: Detect existing ODF operator
-  ansible.builtin.command:
-    cmd: oc --context {{ oc_context }} -n openshift-storage get subscription odf-operator -o name
+  kubernetes.core.k8s_info:
+    api_version: operators.coreos.com/v1alpha1
+    kind: Subscription
+    name: odf-operator
+    namespace: openshift-storage
   register: existing_odf_sub
-  changed_when: false
   failed_when: false
 
 - name: Detect existing StorageCluster
-  ansible.builtin.command:
-    cmd: oc --context {{ oc_context }} -n openshift-storage get storagecluster -o name
+  kubernetes.core.k8s_info:
+    api_version: ocs.openshift.io/v1
+    kind: StorageCluster
+    namespace: openshift-storage
   register: existing_storagecluster
-  changed_when: false
   failed_when: false
 
 - name: Reuse cluster ODF when it is already installed
   ansible.builtin.set_fact:
     rhads_manage_odf: false
-    rhads_manage_odf_storagecluster: "{{ not (existing_storagecluster.rc | default(1) == 0 and existing_storagecluster.stdout | default('') | length > 0) }}"
-  when: existing_odf_sub.rc | default(1) == 0 and existing_odf_sub.stdout | default('') | length > 0
+    # Keep an existing StorageCluster (internal or external); only create one when none is present.
+    rhads_manage_odf_storagecluster: "{{ (existing_storagecluster.resources | default([]) | length) == 0 }}"
+  when: (existing_odf_sub.resources | default([]) | length) > 0
 
 - name: Install ODF when the cluster has none
   ansible.builtin.set_fact:
@@ -118,3 +122,4 @@
       - "Keycloak https://{{ keycloak_hostname }}"
       - "Manage Keycloak {{ rhads_manage_keycloak }} (cluster SSO realm present {{ cluster_sso_realm_present }})"
       - "Manage ODF {{ rhads_manage_odf }} (manage StorageCluster {{ rhads_manage_odf_storagecluster }})"
+      - "Default StorageClass omitted on PVCs (cluster default applies)"
