@@ -3,6 +3,5 @@ kind: OperatorGroup
 metadata:
   name: kafka-console-operator-group
   namespace: kafka-console
-spec:
-  targetNamespaces:
-    - kafka-console
+# Console operator only supports AllNamespaces (OwnNamespace=false).
+spec: {}

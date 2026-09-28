@@ -6,7 +6,7 @@ metadata:
   labels:
     app.kubernetes.io/part-of: rhads-demo
 spec:
-  channel: alpha
+  channel: stable
   installPlanApproval: Automatic
   name: amq-streams-console
   source: redhat-operators
