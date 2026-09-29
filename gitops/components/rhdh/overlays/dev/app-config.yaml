@@ -182,9 +182,11 @@ proxy:
       target: https://apicurio.${OPENSHIFT_CLUSTER_INGRESS_DOMAIN}/apis/registry/v2
       changeOrigin: true
       secure: false
+      # Custom pathRewrite replaces Backstage's default strip of /api/proxy/<route>,
+      # so both the proxy prefix and the plugin's /api/ segment must be rewritten here.
       pathRewrite:
-        "^/api/groups/([^/]+)/artifacts/([^/]+)/versions/([^/]+)/content/?$": "/groups/$1/artifacts/$2/versions/$3"
-        "^/api/": "/"
+        "^/api/proxy/apicurio-registry/api/groups/([^/]+)/artifacts/([^/]+)/versions/([^/]+)/content/?$": "/groups/$1/artifacts/$2/versions/$3"
+        "^/api/proxy/apicurio-registry/api/": "/"
       headers:
         X-Api-Key: ${APICURIO_API_KEY:-}
 
