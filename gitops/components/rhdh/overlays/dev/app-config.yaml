@@ -163,13 +163,28 @@ vault:
   secretEngine: secret
   kvVersion: 2
 
-# Apicurio Registry — schemas for Kafka / CDC apps (links + API entities in catalog).
+# Apicurio Registry UI base (simonnepomuk backstage-plugin-apicurio-registry).
+apicurio:
+  ui:
+    baseUrl: https://apicurio.${OPENSHIFT_CLUSTER_INGRESS_DOMAIN}
+
+# Proxy: plugin (OpenAPI v3 client) → cluster Apicurio Registry 2.6 (REST v2).
+# Strip the v3-only `/content` suffix so version bodies resolve on v2.
 proxy:
   endpoints:
     apicurio:
       target: https://apicurio.${OPENSHIFT_CLUSTER_INGRESS_DOMAIN}
       changeOrigin: true
       secure: false
+      headers:
+        X-Api-Key: ${APICURIO_API_KEY:-}
+    apicurio-registry:
+      target: https://apicurio.${OPENSHIFT_CLUSTER_INGRESS_DOMAIN}/apis/registry/v2
+      changeOrigin: true
+      secure: false
+      pathRewrite:
+        "^/api/groups/([^/]+)/artifacts/([^/]+)/versions/([^/]+)/content/?$": "/groups/$1/artifacts/$2/versions/$3"
+        "^/api/": "/"
       headers:
         X-Api-Key: ${APICURIO_API_KEY:-}
 
