@@ -161,7 +161,7 @@ data:
       # Source: https://github.com/simonnepomuk/backstage-plugin-apicurio-registry
       # Patched for Registry 2.6 UI paths (/ui/artifacts) + v2 version metadata fields.
       - package: https://raw.githubusercontent.com/panchoraposo/demo-rhads-kafka/main/gitops/components/rhdh/plugins/simonnepomuk-backstage-plugin-apicurio-registry-dynamic-0.1.5.tgz
-        integrity: sha512-shh0+kXukXr/AVJyADRgcQleG68JVvPJzfOCn+hG51BjE7EXqJQsqOm1O+MEC+5KkT4kkrXglzlqYQMa+KcMLA==
+        integrity: sha512-HJL8e/R9tcgoRvyQR1XE2P+jWsfVQfQNaBZ8k3E0qhkedKtSI3wOT9E98OpiVDUscLdDmuRgyNPOyTDmMZSctg==
         disabled: false
         pluginConfig:
           dynamicPlugins:
