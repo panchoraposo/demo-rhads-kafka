@@ -35,14 +35,14 @@ metadata:
     - url: https://${{values.component_id}}-${{values.component_id}}-dev.${{values.cluster_subdomain}}
       title: Trip Planner UI (dev)
       icon: web
-    - url: https://kafka-console.${{values.cluster_subdomain}}
-      title: Kafka Console
-      icon: web
     - url: https://devspaces.${{values.cluster_subdomain}}/#https://${{values.host}}/${{values.destination}}
       title: OpenShift Dev Spaces (VS Code)
       icon: web
     - url: https://devspaces.${{values.cluster_subdomain}}/#https://${{values.host}}/${{values.destination}}?che-editor=che-incubator/che-idea/latest
       title: OpenShift Dev Spaces (JetBrains IntelliJ)
+      icon: web
+    - url: https://kafka-console.${{values.cluster_subdomain}}
+      title: Kafka Console
       icon: web
     - url: https://server.${{values.cluster_subdomain}}/
       title: Trusted Profile Analyzer (latest SBOM)
@@ -53,18 +53,13 @@ metadata:
     - url: https://quay.${{values.cluster_subdomain}}/repository/${{values.image_organization}}/${{values.component_id}}
       title: Quay image + signatures
       icon: catalog
-    - url: https://apicurio.${{values.cluster_subdomain}}/ui/artifacts/default/trip-plan-events/versions/latest
-      title: Apicurio — trip CloudEvents schema
-      icon: catalog
-    - url: https://vault.${{values.cluster_subdomain}}/ui/vault/secrets/secret/list/apps/${{values.component_id}}
-      title: Vault secrets
-      icon: catalog
 spec:
   type: service
   lifecycle: development
   owner: group:default/developers
   providesApis:
     - ${{values.component_id | dump}}
+    - ${{values.component_id}}-trip-plan-events
 ---
 apiVersion: backstage.io/v1alpha1
 kind: API
@@ -83,3 +78,27 @@ spec:
   owner: group:default/developers
   definition:
     $text: ./openapi.yaml
+---
+apiVersion: backstage.io/v1alpha1
+kind: API
+metadata:
+  name: ${{values.component_id}}-trip-plan-events
+  description: CloudEvents schema for trip plan HITL (Apicurio group default / trip-plan-events)
+  annotations:
+    # simonnepomuk/backstage-plugin-apicurio-registry
+    apicur.io/registry.groupId: default
+    apicur.io/registry.artifactId: trip-plan-events
+  tags:
+    - cloudevents
+    - kafka
+    - apicurio
+  links:
+    - url: https://apicurio.${{values.cluster_subdomain}}/ui/artifacts/default/trip-plan-events/versions/latest
+      title: Open in Apicurio Registry
+      icon: catalog
+spec:
+  type: asyncapi
+  lifecycle: development
+  owner: group:default/developers
+  definition:
+    $text: ./schemas/trip-plan-events.asyncapi.yaml

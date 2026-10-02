@@ -29,17 +29,11 @@ metadata:
     - url: https://${{values.component_id}}-${{values.component_id}}-dev.${{values.cluster_subdomain}}
       title: CDC consumer UI (dev)
       icon: web
-    - url: https://kafka-console.${{values.cluster_subdomain}}
-      title: Kafka Console
-      icon: web
-    - url: https://apicurio.${{values.cluster_subdomain}}/ui/artifacts/${{values.component_id}}/order-change/versions/latest
-      title: Apicurio — order-change schema
-      icon: catalog
-    - url: https://vault.${{values.cluster_subdomain}}/ui/vault/secrets/secret/list/apps/${{values.component_id}}
-      title: Vault secrets
-      icon: catalog
     - url: https://devspaces.${{values.cluster_subdomain}}/#https://${{values.host}}/${{values.destination}}
       title: OpenShift Dev Spaces (VS Code)
+      icon: web
+    - url: https://kafka-console.${{values.cluster_subdomain}}
+      title: Kafka Console
       icon: web
     - url: https://quay.${{values.cluster_subdomain}}/repository/${{values.image_organization}}/${{values.component_id}}
       title: Quay image + signatures
@@ -59,9 +53,9 @@ metadata:
   name: ${{values.component_id}}-order-change
   description: Avro schema for Debezium CDC order change events (Apicurio group ${{values.component_id}})
   annotations:
-    apicurio.io/registry-url: https://apicurio.${{values.cluster_subdomain}}
-    apicurio.io/group: ${{values.component_id}}
-    apicurio.io/artifact: order-change
+    # simonnepomuk/backstage-plugin-apicurio-registry
+    apicur.io/registry.groupId: ${{values.component_id}}
+    apicur.io/registry.artifactId: order-change
   tags:
     - avro
     - cdc

@@ -17,25 +17,35 @@ metadata:
     gitlab.com/project-slug: ${{values.destination}}
     quay.io/repository-slug: rhads/${{values.component_id}}
     janus-idp.io/tekton: ${{values.component_id}}
+    # HashiCorp Vault plugin — EntityVaultCard on Overview
     vault.io/secrets-path: apps/${{values.component_id}}
   links:
     - title: Trip UI (dev)
       url: https://${{values.component_id}}-${{values.component_id}}-dev.${{values.cluster_subdomain}}/
+      icon: web
+    - title: OpenShift Dev Spaces (VS Code)
+      url: https://devspaces.${{values.cluster_subdomain}}/#https://${{values.host}}/${{values.destination}}
+      icon: web
+    - title: OpenShift Dev Spaces (JetBrains IntelliJ)
+      url: https://devspaces.${{values.cluster_subdomain}}/#https://${{values.host}}/${{values.destination}}?che-editor=che-incubator/che-idea/latest
+      icon: web
     - title: Kafka Console
       url: https://kafka-console.${{values.cluster_subdomain}}/
+      icon: web
     - title: Trusted Profile Analyzer
       url: https://server.${{values.cluster_subdomain}}/
+      icon: catalog
     - title: Quay repository
       url: https://quay.${{values.cluster_subdomain}}/repository/rhads/${{values.component_id}}
-    - title: Apicurio — trip CloudEvents schema
-      url: https://apicurio.${{values.cluster_subdomain}}/ui/artifacts/default/trip-plan-events/versions/latest
-    - title: Vault secrets
-      url: https://vault.${{values.cluster_subdomain}}/ui/vault/secrets/secret/list/apps/${{values.component_id}}
+      icon: catalog
 spec:
   type: service
   lifecycle: experimental
   owner: group:default/${{values.owner}}
   system: system:default/rhads-platform
+  providesApis:
+    - ${{values.component_id}}-api
+    - ${{values.component_id}}-trip-plan-events
 ---
 apiVersion: backstage.io/v1alpha1
 kind: API
@@ -49,3 +59,29 @@ spec:
   system: system:default/rhads-platform
   definition:
     $text: ./openapi.yaml
+---
+# Shared CloudEvents schema in Apicurio Registry — visible in Developer Hub catalog.
+apiVersion: backstage.io/v1alpha1
+kind: API
+metadata:
+  name: ${{values.component_id}}-trip-plan-events
+  description: CloudEvents schema for trip plan HITL (Apicurio group default / trip-plan-events)
+  annotations:
+    # simonnepomuk/backstage-plugin-apicurio-registry
+    apicur.io/registry.groupId: default
+    apicur.io/registry.artifactId: trip-plan-events
+  tags:
+    - cloudevents
+    - kafka
+    - apicurio
+  links:
+    - url: https://apicurio.${{values.cluster_subdomain}}/ui/artifacts/default/trip-plan-events/versions/latest
+      title: Open in Apicurio Registry
+      icon: catalog
+spec:
+  type: asyncapi
+  lifecycle: experimental
+  owner: group:default/${{values.owner}}
+  system: system:default/rhads-platform
+  definition:
+    $text: ./schemas/trip-plan-events.asyncapi.yaml

@@ -1,0 +1,43 @@
+asyncapi: '2.6.0'
+info:
+  title: ${{values.component_id}} trip-plan-events
+  version: '1.0.0'
+  description: |
+    CloudEvents HITL for the agentic trip planner (flow-in / flow-out).
+    Canonical artifact in Apicurio: group `default`, artifact `trip-plan-events`.
+channels:
+  flow-out:
+    description: Planner emits plan status / approval-required CloudEvents
+    subscribe:
+      message:
+        name: TripPlanEvent
+        payload:
+          type: object
+          required: [specversion, type, source, id]
+          properties:
+            specversion: { type: string }
+            type: { type: string }
+            source: { type: string }
+            id: { type: string }
+            subject: { type: string }
+            data:
+              type: object
+              description: Trip plan JSON (destination, steps, costs, decision)
+  flow-in:
+    description: Approval / rejection CloudEvents from the UI
+    publish:
+      message:
+        name: TripDecisionEvent
+        payload:
+          type: object
+          required: [specversion, type, source, id]
+          properties:
+            specversion: { type: string }
+            type: { type: string }
+            source: { type: string }
+            id: { type: string }
+            data:
+              type: object
+              properties:
+                decision: { type: string, enum: [approve, reject] }
+                requestId: { type: string }

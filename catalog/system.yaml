@@ -58,6 +58,10 @@ kind: API
 metadata:
   name: trip-plan-events
   description: Shared trip planner CloudEvents AsyncAPI (seeded in Apicurio group default)
+  annotations:
+    # simonnepomuk/backstage-plugin-apicurio-registry (hooks read these keys)
+    apicur.io/registry.groupId: default
+    apicur.io/registry.artifactId: trip-plan-events
   links:
     - url: https://apicurio.CLUSTER_SUBDOMAIN_PLACEHOLDER/ui/artifacts/default/trip-plan-events/versions/latest
       title: Open in Apicurio
