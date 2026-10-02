@@ -90,16 +90,21 @@
     quay_ui_url: "https://{{ quay_url | default(quay_host) }}"
     backstage_client_secret: "{{ backstage_client_secret | default((existing_backstage_env.resources[0].data.OAUTH_CLIENT_SECRET | b64decode) if (existing_backstage_env.resources | default([]) | length > 0 and existing_backstage_env.resources[0].data.OAUTH_CLIENT_SECRET is defined) else '') }}"
 
-- name: Read Vault token for Developer Hub plugin
+# Vault plugin backend refuses empty vault.auth.secret and CrashLoops the Hub.
+# Wait until vault-config has created vault-rhdh-token (ordering / race on fresh installs).
+- name: Wait for Vault Hub token secret
   ansible.builtin.command:
     cmd: oc --context {{ oc_context }} -n {{ vault_namespace }} extract secret/vault-rhdh-token --to=- --keys=token
   register: vault_rhdh_token_cmd
   changed_when: false
-  failed_when: false
+  retries: 30
+  delay: 10
+  until: (vault_rhdh_token_cmd.rc == 0) and ((vault_rhdh_token_cmd.stdout | default('') | trim | length) > 0)
 
 - name: Set Vault Hub token fact
   ansible.builtin.set_fact:
-    vault_rhdh_token: "{{ vault_rhdh_token_cmd.stdout | default('') }}"
+    vault_rhdh_token: "{{ vault_rhdh_token_cmd.stdout | trim }}"
+  no_log: true
 
 # Full installs set gitlab_pat in gitlab-config; resumes / partial runs load it from rhads-ci.
 - name: Load GitLab PAT from rhads-ci when unset

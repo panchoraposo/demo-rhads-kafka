@@ -85,17 +85,19 @@ path "auth/token/lookup-self" {
 EOF
 
 # Static token for Developer Hub Vault plugin (LIST + read metadata only).
+# Parse with python: vault JSON nests client_token under auth, and sed is brittle.
 HUB_TOKEN=$(oc --context "$ctx" -n "$ns" exec deploy/vault -c vault -- \
   env VAULT_ADDR=http://127.0.0.1:8200 VAULT_TOKEN="$ROOT" \
   vault token create -policy=rhdh-vault-list -ttl=768h -format=json \
-  | sed -n 's/.*"client_token":"\([^"]*\)".*/\1/p' | head -1)
+  | python3 -c 'import json,sys; print(json.load(sys.stdin)["auth"]["client_token"])')
 if [ -n "${HUB_TOKEN}" ]; then
   oc --context "$ctx" -n "$ns" create secret generic vault-rhdh-token \
     --from-literal=token="${HUB_TOKEN}" \
     --dry-run=client -o yaml | oc --context "$ctx" -n "$ns" apply -f -
   echo "PASS: vault-rhdh-token secret created"
 else
-  echo "WARN: could not create Hub Vault token"
+  echo "ERROR: could not create Hub Vault token" >&2
+  exit 1
 fi
 
 exec_vault vault auth enable userpass || true
