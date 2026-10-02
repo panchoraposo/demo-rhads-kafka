@@ -170,7 +170,8 @@ apicurio:
     baseUrl: https://apicurio.${OPENSHIFT_CLUSTER_INGRESS_DOMAIN}
 
 # Proxy: plugin (OpenAPI v3 client) → cluster Apicurio Registry 2.6 (REST v2).
-# Strip the v3-only `/content` suffix so version bodies resolve on v2.
+# Put /apis/registry/v2 in the rewrite (not the target path) so HPM always hits v2,
+# and strip the v3-only `/content` suffix. Match both full originalUrl and mount-relative /api/.
 proxy:
   endpoints:
     apicurio:
@@ -180,14 +181,14 @@ proxy:
       headers:
         X-Api-Key: ${APICURIO_API_KEY:-}
     apicurio-registry:
-      target: https://apicurio.${OPENSHIFT_CLUSTER_INGRESS_DOMAIN}/apis/registry/v2
+      target: https://apicurio.${OPENSHIFT_CLUSTER_INGRESS_DOMAIN}
       changeOrigin: true
       secure: false
-      # Custom pathRewrite replaces Backstage's default strip of /api/proxy/<route>,
-      # so both the proxy prefix and the plugin's /api/ segment must be rewritten here.
       pathRewrite:
-        "^/api/proxy/apicurio-registry/api/groups/([^/]+)/artifacts/([^/]+)/versions/([^/]+)/content/?$": "/groups/$1/artifacts/$2/versions/$3"
-        "^/api/proxy/apicurio-registry/api/": "/"
+        "^/api/proxy/apicurio-registry/api/groups/([^/]+)/artifacts/([^/]+)/versions/([^/]+)/content": "/apis/registry/v2/groups/$1/artifacts/$2/versions/$3"
+        "^/api/proxy/apicurio-registry/api/": "/apis/registry/v2/"
+        "^/api/groups/([^/]+)/artifacts/([^/]+)/versions/([^/]+)/content": "/apis/registry/v2/groups/$1/artifacts/$2/versions/$3"
+        "^/api/": "/apis/registry/v2/"
       headers:
         X-Api-Key: ${APICURIO_API_KEY:-}
 

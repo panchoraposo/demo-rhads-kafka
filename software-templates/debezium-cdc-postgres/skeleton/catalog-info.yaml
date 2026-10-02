@@ -53,9 +53,12 @@ metadata:
   name: ${{values.component_id}}-order-change
   description: Avro schema for Debezium CDC order change events (Apicurio group ${{values.component_id}})
   annotations:
-    # simonnepomuk/backstage-plugin-apicurio-registry
+    # Plugin hooks read apicur.io/registry.*; also set apicurio.io/* aliases
+    # (empty-state text in the plugin incorrectly names the latter).
     apicur.io/registry.groupId: ${{values.component_id}}
     apicur.io/registry.artifactId: order-change
+    apicurio.io/groupId: ${{values.component_id}}
+    apicurio.io/artifactId: order-change
   tags:
     - avro
     - cdc
