@@ -57,7 +57,8 @@ catalog:
     - type: url
       target: https://${GITLAB_HOST}/platform-engineers/rhads-platform/-/blob/main/catalog/all.yaml
       rules:
-        - allow: [Template, Location, Component, System, Domain, User, Group]
+        # API required so Apicurio-annotated schemas (trip-plan-events, template APIs) ingest.
+        - allow: [Template, Location, Component, System, Domain, API, User, Group]
   providers:
     keycloakOrg:
       default:
