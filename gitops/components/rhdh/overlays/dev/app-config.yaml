@@ -16,6 +16,17 @@ backend:
   auth:
     keys:
       - secret: ${BACKEND_SECRET}
+    # Static token for MCP clients (Cursor, etc.) → /api/mcp-actions/v1
+    externalAccess:
+      - type: static
+        options:
+          token: ${MCP_TOKEN}
+          subject: mcp-clients
+  actions:
+    pluginSources:
+      - software-catalog-mcp-extras
+      - techdocs-mcp-extras
+      - scaffolder-mcp-extras
 
 # Full-page redirect instead of a popup so the OIDC session cookie is sent.
 enableExperimentalRedirectFlow: true
@@ -104,13 +115,17 @@ integrations:
       baseUrl: https://${GITLAB_HOST}
       token: ${GITLAB_TOKEN}
 
+# Used by @backstage-community/plugin-argocd(-backend). Instance name is referenced
+# by entity annotation argocd/instance-name when set; otherwise the first entry wins.
 argocd:
+  username: ${ARGOCD_USERNAME:-admin}
+  password: ${ARGOCD_PASSWORD}
   appLocatorMethods:
     - type: config
       instances:
         - name: main
           url: https://argocd.${OPENSHIFT_CLUSTER_INGRESS_DOMAIN}
-          username: admin
+          username: ${ARGOCD_USERNAME:-admin}
           password: ${ARGOCD_PASSWORD}
 
 kubernetes:
@@ -170,25 +185,23 @@ apicurio:
     baseUrl: https://apicurio.${OPENSHIFT_CLUSTER_INGRESS_DOMAIN}
 
 # Proxy: plugin (OpenAPI v3 client) → cluster Apicurio Registry 2.6 (REST v2).
-# Put /apis/registry/v2 in the rewrite (not the target path) so HPM always hits v2,
-# and strip the v3-only `/content` suffix. Match both full originalUrl and mount-relative /api/.
+# Do NOT also define a proxy endpoint named `apicurio`: Express mounts are prefix
+# matches, so `/apicurio` steals `/apicurio-registry/*` and rewrites to /registry/... (404).
+# HPM resets req.url to originalUrl before rewrite, so match the full /api/proxy/... path.
+# Put /apis/registry/v2 in the rewrite (not the target path) so the v2 prefix is preserved.
+# credentials: demo Hub — plugin fetchApi already sends identity; unauthenticated keeps curl working.
 proxy:
   endpoints:
-    apicurio:
+    # Leading slash required — without it the proxy middleware never mounts and
+    # authenticated calls get an empty Backstage 404 (Helmet headers, no upstream).
+    /apicurio-registry:
       target: https://apicurio.${OPENSHIFT_CLUSTER_INGRESS_DOMAIN}
       changeOrigin: true
       secure: false
-      headers:
-        X-Api-Key: ${APICURIO_API_KEY:-}
-    apicurio-registry:
-      target: https://apicurio.${OPENSHIFT_CLUSTER_INGRESS_DOMAIN}
-      changeOrigin: true
-      secure: false
+      credentials: dangerously-allow-unauthenticated
       pathRewrite:
-        "^/api/proxy/apicurio-registry/api/groups/([^/]+)/artifacts/([^/]+)/versions/([^/]+)/content": "/apis/registry/v2/groups/$1/artifacts/$2/versions/$3"
+        "^/api/proxy/apicurio-registry/api/groups/([^/]+)/artifacts/([^/]+)/versions/([^/]+)/content/?$": "/apis/registry/v2/groups/$1/artifacts/$2/versions/$3"
         "^/api/proxy/apicurio-registry/api/": "/apis/registry/v2/"
-        "^/api/groups/([^/]+)/artifacts/([^/]+)/versions/([^/]+)/content": "/apis/registry/v2/groups/$1/artifacts/$2/versions/$3"
-        "^/api/": "/apis/registry/v2/"
       headers:
         X-Api-Key: ${APICURIO_API_KEY:-}
 

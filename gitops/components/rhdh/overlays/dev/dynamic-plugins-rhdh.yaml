@@ -62,17 +62,19 @@ data:
             apiUrl: ${QUAY_UI_URL}
       - package: oci://ghcr.io/redhat-developer/rhdh-plugin-export-overlays/backstage-community-plugin-scaffolder-backend-module-quay:{{inherit}}
         disabled: false
-      - package: oci://ghcr.io/redhat-developer/rhdh-plugin-export-overlays/roadiehq-backstage-plugin-argo-cd-backend:{{inherit}}
+      # Argo CD — Red Hat / Backstage Community (not Roadie).
+      # Scaffolder actions ship in the community backend; no separate Roadie scaffolder plugin.
+      - package: oci://ghcr.io/redhat-developer/rhdh-plugin-export-overlays/backstage-community-plugin-argocd-backend:bs_1.49.4__1.4.0
         disabled: false
-      - package: oci://ghcr.io/redhat-developer/rhdh-plugin-export-overlays/roadiehq-backstage-plugin-argo-cd:bs_1.49.4__2.12.5
+      - package: oci://ghcr.io/redhat-developer/rhdh-plugin-export-overlays/backstage-community-plugin-argocd:bs_1.49.4__2.8.1
         disabled: false
         pluginConfig:
           dynamicPlugins:
             frontend:
-              roadiehq.backstage-plugin-argo-cd:
+              backstage-community.plugin-argocd:
                 mountPoints:
                   - mountPoint: entity.page.overview/cards
-                    importName: EntityArgoCDOverviewCard
+                    importName: ArgocdDeploymentSummary
                     config:
                       layout:
                         gridColumnEnd:
@@ -80,17 +82,22 @@ data:
                           xs: "span 12"
                       if:
                         allOf:
-                          - isArgocdAvailable
+                          - isArgocdConfigured
                   - mountPoint: entity.page.cd/cards
-                    importName: EntityArgoCDHistoryCard
+                    importName: ArgocdDeploymentLifecycle
                     config:
                       layout:
                         gridColumn: "1 / -1"
                       if:
                         allOf:
-                          - isArgocdAvailable
+                          - isArgocdConfigured
+      # Explicitly keep Roadie Argo CD off if the default catalog pulls it in.
+      - package: oci://ghcr.io/redhat-developer/rhdh-plugin-export-overlays/roadiehq-backstage-plugin-argo-cd-backend:{{inherit}}
+        disabled: true
+      - package: oci://ghcr.io/redhat-developer/rhdh-plugin-export-overlays/roadiehq-backstage-plugin-argo-cd:bs_1.49.4__2.12.5
+        disabled: true
       - package: oci://ghcr.io/redhat-developer/rhdh-plugin-export-overlays/roadiehq-scaffolder-backend-argocd:{{inherit}}
-        disabled: false
+        disabled: true
       # GitLab pipelines on the CI tab (docs-only .gitlab-ci.yml) next to Tekton.
       # 7.0.1 targets MUI 7 and crashes the Hub (internal_mutateStyles). 6.13.0
       # shares the Hub MUI 5 / react-router 6 stack. Skip 6.13.1 and 7.0.2 (npm compromise).
@@ -152,8 +159,9 @@ data:
       # Apicurio Registry — community plugin (no OCI overlay in rhdh-plugin-export-overlays).
       # Hosted in this repo so installs are cluster-independent (not a per-cluster GitLab URL).
       # Source: https://github.com/simonnepomuk/backstage-plugin-apicurio-registry
+      # Patched for Registry 2.6 UI paths (/ui/artifacts) + v2 version metadata fields.
       - package: https://raw.githubusercontent.com/panchoraposo/demo-rhads-kafka/main/gitops/components/rhdh/plugins/simonnepomuk-backstage-plugin-apicurio-registry-dynamic-0.1.5.tgz
-        integrity: sha512-IkuZrHGlZWdO3WEh811mSWqtsUYdZ1ENOdEOD60aCV5r2jOgEZFFp+EfL7rBlZSvoYJ6GgGtFmfjAkjphI7V1w==
+        integrity: sha512-shh0+kXukXr/AVJyADRgcQleG68JVvPJzfOCn+hG51BjE7EXqJQsqOm1O+MEC+5KkT4kkrXglzlqYQMa+KcMLA==
         disabled: false
         pluginConfig:
           dynamicPlugins:
@@ -172,3 +180,12 @@ data:
                       if:
                         allOf:
                           - isKind: api
+      # MCP — Backstage actions server + Red Hat extras (catalog / TechDocs / scaffolder).
+      - package: oci://ghcr.io/redhat-developer/rhdh-plugin-export-overlays/backstage-plugin-mcp-actions-backend:bs_1.49.4__0.1.11
+        disabled: false
+      - package: oci://ghcr.io/redhat-developer/rhdh-plugin-export-overlays/red-hat-developer-hub-backstage-plugin-software-catalog-mcp-extras:bs_1.49.4__0.2.2
+        disabled: false
+      - package: oci://ghcr.io/redhat-developer/rhdh-plugin-export-overlays/red-hat-developer-hub-backstage-plugin-techdocs-mcp-extras:bs_1.49.4__0.2.3
+        disabled: false
+      - package: oci://ghcr.io/redhat-developer/rhdh-plugin-export-overlays/red-hat-developer-hub-backstage-plugin-scaffolder-mcp-extras:bs_1.49.4__0.4.1
+        disabled: false
