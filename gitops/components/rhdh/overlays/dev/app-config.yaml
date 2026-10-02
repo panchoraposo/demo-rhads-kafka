@@ -27,6 +27,8 @@ backend:
       - software-catalog-mcp-extras
       - techdocs-mcp-extras
       - scaffolder-mcp-extras
+      # Community Argo CD scaffolder/MCP actions (backstage-community-argocd:create-resources).
+      - backstage-community-argocd
 
 # Full-page redirect instead of a popup so the OIDC session cookie is sent.
 enableExperimentalRedirectFlow: true

@@ -62,8 +62,9 @@ data:
             apiUrl: ${QUAY_UI_URL}
       - package: oci://ghcr.io/redhat-developer/rhdh-plugin-export-overlays/backstage-community-plugin-scaffolder-backend-module-quay:{{inherit}}
         disabled: false
-      # Argo CD — Red Hat / Backstage Community (not Roadie).
-      # Scaffolder actions ship in the community backend; no separate Roadie scaffolder plugin.
+      # Argo CD — Red Hat / Backstage Community (not Roadie UI/backend).
+      # Scaffolder action ID is backstage-community-argocd:create-resources (via Actions API /
+      # backend.actions.pluginSources). Keep Roadie scaffolder module disabled.
       - package: oci://ghcr.io/redhat-developer/rhdh-plugin-export-overlays/backstage-community-plugin-argocd-backend:bs_1.49.4__1.4.0
         disabled: false
       - package: oci://ghcr.io/redhat-developer/rhdh-plugin-export-overlays/backstage-community-plugin-argocd:bs_1.49.4__2.8.1

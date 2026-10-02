@@ -143,7 +143,7 @@ spec:
           auto_devops_enabled: false
     - id: create-argocd
       name: Create Argo CD app-of-apps
-      action: argocd:create-resources
+      action: backstage-community-argocd:create-resources
       input:
         appName: ${{ parameters.component_id }}-bootstrap
         argoInstance: main
