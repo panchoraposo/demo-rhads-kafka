@@ -1,5 +1,6 @@
 package com.tripplanner.resource;
 
+import com.tripplanner.kafka.KafkaTripEngine;
 import com.tripplanner.model.TripApproval;
 import com.tripplanner.model.TripError;
 import com.tripplanner.model.TripPlanStatus;
@@ -16,6 +17,7 @@ import org.eclipse.microprofile.reactive.messaging.Channel;
 import org.eclipse.microprofile.reactive.messaging.Emitter;
 import org.eclipse.microprofile.reactive.messaging.Message;
 import org.eclipse.microprofile.reactive.messaging.Metadata;
+import org.jboss.logging.Logger;
 
 import java.net.URI;
 import java.util.UUID;
@@ -23,9 +25,13 @@ import java.util.concurrent.CompletableFuture;
 
 @Path("/trip")
 public class TripApprovalResource {
+    private static final Logger LOG = Logger.getLogger(TripApprovalResource.class);
 
     @Inject
     TripPlanStore store;
+
+    @Inject
+    KafkaTripEngine engine;
 
     @Channel("trip-in-producer")
     Emitter<TripApproval> tripIn;
@@ -44,6 +50,8 @@ public class TripApprovalResource {
             return Response.status(400).entity(new TripError("invalid_decision", "status must be approved or rejected.")).build();
         }
         TripPlanStatus submitted = store.submitDecision(approval);
+        LOG.infof("[api] PUT /trip/approve instanceId=%s status=%s requestId=%s",
+                approval.instanceId(), approval.status(), submitted.requestId());
 
         OutgoingCloudEventMetadata<TripApproval> metadata = OutgoingCloudEventMetadata.<TripApproval>builder()
                 .withId(UUID.randomUUID().toString())
@@ -55,13 +63,16 @@ public class TripApprovalResource {
 
         try {
             tripIn.send(Message.of(approval, Metadata.of(metadata)).withNack(failure -> {
+                LOG.errorf(failure, "[api] Kafka nack for approval %s", approval.instanceId());
                 store.submissionFailed(submitted.requestId(), failure);
                 return CompletableFuture.completedFuture(null);
             }));
         } catch (RuntimeException failure) {
+            LOG.errorf(failure, "[api] Kafka send failed for approval %s", approval.instanceId());
             store.submissionFailed(submitted.requestId(), failure);
             return Response.serverError().entity(store.byInstanceId(approval.instanceId())).build();
         }
+        CompletableFuture.runAsync(() -> engine.processApproval(approval));
         return Response.accepted(submitted).build();
     }
 }

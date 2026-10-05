@@ -40,6 +40,8 @@ public class TripPlanStore {
         String requestId = UUID.randomUUID().toString();
         requests.put(requestId, new TripPlanStatus(requestId, null, request, "planning", null, null, null, null));
         latestRequestId = requestId;
+        LOG.infof("[store] register requestId=%s destination=%s", requestId,
+                request != null ? request.destination() : "?");
         return new PlanningRequest(requestId, request);
     }
 
@@ -53,7 +55,20 @@ public class TripPlanStore {
                 "planning", null, null, null, null);
         requests.put(input.requestId(), bound);
         instances.put(instanceId, input.requestId());
+        LOG.infof("[store] bind requestId=%s instanceId=%s", input.requestId(), instanceId);
         return bound;
+    }
+
+    /**
+     * Apply an engine outcome directly (unblocks HTTP waiters even when Kafka CE loopback fails).
+     */
+    public synchronized void acceptLocal(String instanceId, TripPlanStatus result) {
+        if (result == null || instanceId == null) {
+            return;
+        }
+        accept(instanceId, result.status(), result);
+        LOG.infof("[store] acceptLocal instanceId=%s status=%s requestId=%s",
+                instanceId, result.status(), result.requestId());
     }
 
     @Incoming("trip-out-consumer")
@@ -74,9 +89,11 @@ public class TripPlanStore {
             return message.ack();
         }
         try {
-            accept(instanceId, state, objectMapper.readValue(message.getPayload(), TripPlanStatus.class));
+            TripPlanStatus result = objectMapper.readValue(message.getPayload(), TripPlanStatus.class);
+            LOG.infof("[store] trip-out type=%s instanceId=%s status=%s", event.getType(), instanceId, state);
+            accept(instanceId, state, result);
         } catch (JsonProcessingException e) {
-            LOG.warn("Ignoring malformed trip outcome event");
+            LOG.warnf(e, "[store] ignoring malformed trip-out event type=%s", event.getType());
         }
         return message.ack();
     }

@@ -6,6 +6,15 @@ const FETCH_TIMEOUT = 15000;
 const PLANNING_TIMEOUT = 135000;
 const POLLING_TIMEOUT = 120000;
 const POLLING_INTERVAL = 2000;
+
+// Dev Spaces: page is …/<workspace>/8080 or …/8080/. Relative "trip/plan" without a trailing
+// slash on the page URL resolves to …/trip/plan (wrong). Build an absolute path under the
+// workspace prefix so fetch always hits Quarkus.
+function apiUrl(path) {
+    const rel = path.replace(/^\//, "");
+    const base = window.location.pathname.replace(/\/?$/, "/");
+    return base + rel;
+}
 const statuses = new Set(["planning", "awaiting_approval", "decision_submitted", "confirmed", "rejected", "failed"]);
 let currentTrip = null;
 let generation = 0;
@@ -22,6 +31,7 @@ async function fetchJson(url, options = {}, timeout = FETCH_TIMEOUT) {
     requests.add(controller);
     const timer = setTimeout(() => controller.abort(), timeout);
     try {
+        console.info("[trip-ui]", options.method || "GET", url);
         const response = await fetch(url, { ...options, signal: controller.signal, cache: "no-store" });
         let data = null;
         if (response.status !== 204) {
@@ -29,8 +39,10 @@ async function fetchJson(url, options = {}, timeout = FETCH_TIMEOUT) {
                 data = await response.json();
             } catch (error) {
                 if (controller.signal.aborted) throw error;
+                console.warn("[trip-ui] non-JSON response", response.status, url);
             }
         }
+        console.info("[trip-ui]", response.status, url, data?.status || data?.error || "");
         if (data && typeof data === "object" && "message" in data) {
             data.message = safeMessage(data, null, response.status);
         }
@@ -74,7 +86,7 @@ async function restoreLatestPlan() {
     const token = generation;
     restoring = true;
     try {
-        const { response, data } = await fetchJson("/trip/plan/latest");
+        const { response, data } = await fetchJson(apiUrl("/trip/plan/latest"));
         if (token !== generation || response.status === 204) return;
         if (!response.ok || !isEnvelope(data)) throw new Error("restore");
         currentTrip = data;
@@ -154,7 +166,7 @@ async function planTrip() {
     renderTrip();
 
     try {
-        const { response, data } = await fetchJson("/trip/plan", {
+        const { response, data } = await fetchJson(apiUrl("/trip/plan"), {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(request)
@@ -271,7 +283,7 @@ async function submitApproval(status) {
     notice = "";
     renderTrip();
     try {
-        const { response, data } = await fetchJson("/trip/approve", {
+        const { response, data } = await fetchJson(apiUrl("/trip/approve"), {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
@@ -330,7 +342,7 @@ function startPolling() {
         try {
             const query = currentTrip.instanceId ? `instanceId=${encodeURIComponent(currentTrip.instanceId)}`
                 : `requestId=${encodeURIComponent(currentTrip.requestId)}`;
-            const { response, data } = await fetchJson(`/trip/plan/status?${query}`, {}, Math.min(FETCH_TIMEOUT, deadline - Date.now()));
+            const { response, data } = await fetchJson(apiUrl(`/trip/plan/status?${query}`), {}, Math.min(FETCH_TIMEOUT, deadline - Date.now()));
             if (token !== generation) return;
             if (!response.ok || !acceptStatus(data)) {
                 notice = safeMessage(data, "Could not read the trip status. Check again later; the workflow may still complete.");

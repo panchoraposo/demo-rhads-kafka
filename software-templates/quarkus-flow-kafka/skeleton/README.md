@@ -9,7 +9,7 @@ Agentic **Trip Planner** inspired by [quarkus-workshop-langchain4j](https://quar
 1. Catalog → **OpenShift Dev Spaces (VS Code)**.
 2. Command palette → **Write .env for Red Hat MaaS** if `MAAS_API_KEY` is empty (OpenShift AI → Gen AI studio → API keys).
 3. Command palette → **Quarkus dev (trip UI + Dev UI on 8080)**. That step selects **JDK 21** (the UDI default is 17; compiling `release` 21 with 17 fails). For local Kafka Dev Services leave `KAFKA_BOOTSTRAP_SERVERS` unset; against the cluster set it to `rhads-kafka-kafka-bootstrap.kafka.svc:9092`.
-4. Open **PORTS** (or **Endpoints**):
+4. Open **PORTS** (or **Endpoints**) — use **trip-ui** (URL ending in `/8080/`). Do not open the planner via a bookmark that drops the workspace path segment; the UI calls the API with paths relative to that prefix.
    - **trip-ui** → planner UI (`/`)
    - **quarkus-dev-ui** → `/q/dev-ui` (needs the Dev Spaces task so `QUARKUS_DEV_UI_CONTEXT_ROOT` is set)
    - **swagger-ui** → `/q/swagger-ui`

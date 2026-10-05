@@ -66,13 +66,17 @@ public class TripPlannerService {
 
     public TripPlan planFromRequest(TripRequest request) {
         if (apiKey == null || apiKey.isBlank() || "local-dev-placeholder".equals(apiKey)) {
+            Log.error("MAAS_API_KEY is missing or placeholder — cannot call MaaS");
             throw new IllegalStateException(
-                    "MAAS_API_KEY is not set. Put a real key in apps/trip-quarkus/.env and restart Quarkus.");
+                    "MAAS_API_KEY is not set. Run “Write .env for Red Hat MaaS” (or set MAAS_API_KEY) and restart Quarkus.");
         }
         String days = String.valueOf(request.days());
         String travelers = String.valueOf(request.travelers());
         String skills = skillGuidance.combined(request.tripType());
+        Log.infof("[planner] start destination=%s tripType=%s travelers=%s days=%s",
+                request.destination(), request.tripType(), travelers, days);
 
+        Log.info("[planner] vehicle advisor + itinerary planner…");
         CompletableFuture<TripPlan.VehicleRecommendation> vehicleFut = CompletableFuture.supplyAsync(
                 () -> vehicleAdvisor.recommendVehicle(
                         request.destination(),
@@ -94,11 +98,16 @@ public class TripPlannerService {
 
         TripPlan.VehicleRecommendation vehicle = vehicleFut.join();
         ItineraryResult itinerary = itineraryFut.join();
+        Log.infof("[planner] vehicle=%s %s itineraryDays=%d",
+                vehicle.type(), vehicle.model(),
+                itinerary.itinerary() != null ? itinerary.itinerary().size() : 0);
 
         vehicle = reviewVehicle(vehicle, request, days, travelers);
 
+        Log.info("[planner] cost estimator…");
         TripPlan.CostEstimate costs = costEstimator.estimateCosts(
                 vehicle, itinerary, days, travelers, request.budget());
+        Log.infof("[planner] done total=%s", costs != null ? costs.total() : "?");
 
         return new TripPlan(vehicle, itinerary.routeOverview(), itinerary.itinerary(), costs);
     }
