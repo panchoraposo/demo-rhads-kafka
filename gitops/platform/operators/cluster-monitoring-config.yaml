@@ -1,0 +1,11 @@
+# The operators Application has no destination namespace, so this ConfigMap
+# stays in openshift-monitoring. The observability app would rewrite it into
+# rhads-observability and user-workload Prometheus would never start.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cluster-monitoring-config
+  namespace: openshift-monitoring
+data:
+  config.yaml: |
+    enableUserWorkload: true

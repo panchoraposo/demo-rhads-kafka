@@ -14,7 +14,22 @@ components:
       image: docker.io/library/golang:1.21.0-bookworm
       memoryLimit: 2Gi
       mountSources: true
+      # Official golang image exits immediately (CMD go). Dev Spaces postStart
+      # then fails and the workspace never reaches Running.
+      command:
+        - /bin/bash
+        - -c
+        - exec sleep infinity
       env:
+        # Arbitrary UID cannot write /.cache or /go (golang image defaults).
+        - name: HOME
+          value: /home/user
+        - name: GOPATH
+          value: /tmp/go
+        - name: GOCACHE
+          value: /tmp/go-cache
+        - name: GOMODCACHE
+          value: /tmp/go/pkg/mod
         # Same Nexus go-group as the Tekton build-source task (SSSC).
         - name: GOPROXY
           value: http://nexus.nexus.svc:8081/repository/go-group/
@@ -26,21 +41,61 @@ components:
           value: "*"
         - name: KAFKA_BOOTSTRAP_SERVERS
           value: rhads-kafka-kafka-bootstrap.kafka.svc:9092
+        - name: GITSIGN_FULCIO_URL
+          value: https://fulcio-server-trusted-artifact-signer.${{values.cluster_subdomain}}
+        - name: GITSIGN_REKOR_URL
+          value: https://rekor-server-trusted-artifact-signer.${{values.cluster_subdomain}}
+        - name: GITSIGN_OIDC_ISSUER
+          value: https://sso.${{values.cluster_subdomain}}/realms/backstage
+        - name: GITSIGN_OIDC_CLIENT_ID
+          value: trusted-artifact-signer
+        - name: GITSIGN_TUF_URL
+          value: https://tuf-trusted-artifact-signer.${{values.cluster_subdomain}}
+        - name: GITSIGN_CERT_IDENTITY
+          value: dev1@rhads.demo
+        - name: CLUSTER_SUBDOMAIN
+          value: ${{values.cluster_subdomain}}
       endpoints:
         - name: http-go
           targetPort: 8080
 commands:
   - id: run
     exec:
+      label: Run Trip Planner (8080)
       component: go
-      commandLine: "go run ./cmd/server"
+      commandLine: |
+        set -euo pipefail
+        export PATH="/usr/local/go/bin:${PATH}"
+        go run ./cmd/server
+      workingDir: ${PROJECT_SOURCE}
+      group:
+        kind: run
+        isDefault: true
+  - id: setup-gitsign
+    exec:
+      label: Configure Sigstore git commit signing (gitsign + RHTAS TUF)
+      component: go
+      commandLine: bash .devcontainer/setup-gitsign.sh
+      workingDir: ${PROJECT_SOURCE}
+  - id: verify-gitsign
+    exec:
+      label: Verify Sigstore-signed HEAD (gitsign + RHTAS TUF)
+      component: go
+      commandLine: bash .devcontainer/verify-gitsign.sh
       workingDir: ${PROJECT_SOURCE}
   - id: download
     exec:
+      label: go mod tidy via Nexus
       component: go
-      commandLine: "echo \"[SSSC] go mod tidy via Nexus GOPROXY=${GOPROXY}\" && go mod tidy && go mod vendor"
+      commandLine: |
+        set -euo pipefail
+        export PATH="/usr/local/go/bin:${PATH}"
+        echo "[SSSC] go mod tidy via Nexus GOPROXY=${GOPROXY}"
+        go mod tidy && go mod vendor
       workingDir: ${PROJECT_SOURCE}
   - id: rhda
     exec:
+      label: Open go.mod for Red Hat Dependency Analytics
       component: go
-      commandLine: "echo 'Open Command Palette → Red Hat Dependency Analytics on go.mod (backend is in-cluster TPA)'"
+      commandLine: echo "Open go.mod and run Red Hat Dependency Analytics from the command palette."
+      workingDir: ${PROJECT_SOURCE}

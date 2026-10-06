@@ -46,3 +46,6 @@ resources:
   - subscription-amq-streams-console.yaml
   - subscription-coo.yaml
   - subscription-apicurio.yaml
+  # User-workload Prometheus scrapes ServiceMonitors from the app templates
+  # and the Kafka exporter. Thanos Querier then serves them to Perses.
+  - cluster-monitoring-config.yaml

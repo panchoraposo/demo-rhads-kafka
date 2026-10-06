@@ -45,10 +45,11 @@ Shared password: `backstage`. Keep `https://dashboard.apps.<cluster>/` open.
 1. Create → **CDC — Debezium PostgreSQL** (`orders-cdc`).
 2. Argo apps: `orders-cdc-build`, `orders-cdc-cdc` (Postgres + connector Job), `orders-cdc-dev|staging|prod`.
 3. Catalog → Overview: Vault card + API entity **order-change** → Apicurio UI.
-4. Open **CDC Order Desk** (dev Route).
+4. Open **CDC Order Desk** (dev Route), or in Dev Spaces run **Run Order Desk (8080)** — it reads `application.properties` (env overrides the file).
 5. Click **New order** — pipeline strip pulses; event feed shows `CREATE` with capture latency.
 6. Select the row → **Mark paid** — `UPDATE` with expandable before → after.
-7. Optional: Kafka Console topic `orders-cdc.public.orders`; Apicurio artifact from the header link.
+7. Before the signed commit: **Configure Sigstore git commit signing (gitsign + RHTAS TUF)**, then commit and **Verify Sigstore-signed HEAD**.
+8. Optional: Kafka Console topic `orders-cdc.public.orders`; Apicurio artifact from the header link.
 
 No debug-pod SQL on stage — the UI writes Postgres and Debezium captures it.
 
@@ -56,10 +57,11 @@ No debug-pod SQL on stage — the UI writes Postgres and Debezium captures it.
 
 OpenShift console → **Observe → Dashboards (Perses)** → project `rhads-observability`:
 
-- **RHADS Kafka — Trip Planner events**
-- **RHADS Trip Planner — app health**
+- **RHADS Kafka — Trip Planner events** and **RHADS Trip Planner — app health**
+- **RHADS CDC — orders**
+- Per app, after the GitOps sync: **Trip Planner — {name}** or **CDC — {name}**
 
-Correlate message rates while approving a trip.
+Correlate topic offset rate while approving a trip or paying an order. Broker, Postgres and Debezium panels read cluster metrics immediately. Topic rate and HTTP panels fill in once user-workload Prometheus has scraped the Kafka exporter and the app `/metrics` (Quarkus `/q/metrics`).
 
 ## 6. Supply-chain promotion (10 min)
 
@@ -76,7 +78,7 @@ Create → **Agentic Trip Planner — Go/Kafka** (`trip-go`).
 
 - RHDA on `go.mod` (jwt-go, gorilla/websocket, yaml.v2, x/net — community module CVEs).
 - First image uses **community** bases (`golang:1.21.0-bookworm` + `debian:12.0-slim`) → ACS shows base-OS CVEs.
-- Switch to Red Hat: `cp Dockerfile.ubi Dockerfile`, commit, push → rebuild → ACS/TPA show the UBI difference.
+- Switch to [Red Hat Hardened Images — Go 1](https://images.redhat.com/?name=go&version=1): `cp Dockerfile.ubi Dockerfile`, commit, push → rebuild. That file uses `registry.access.redhat.com/hi/go:1.25-builder` and `registry.access.redhat.com/hi/core-runtime:latest` (no shell in the runtime). ACS/TPA show the base-OS difference. Leave `go.mod` at 1.21; do not run `go mod tidy` with the 1.25 toolchain.
 - Same Trip UI / Kafka topics / Approve path (hand-rolled workflow engine, same CloudEvents types).
 
 ## Cheat sheet

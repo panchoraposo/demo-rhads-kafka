@@ -73,6 +73,7 @@ spec:
                 echo "waiting for KafkaConnect Ready (${i}/60) status=${READY:-unknown}"
                 sleep 10
               done
+              SLOT_NAME="$(echo "${COMPONENT_ID}" | tr '[:upper:]' '[:lower:]' | tr '-' '_')_orders"
               cat >/tmp/connector.yaml <<EOF
               apiVersion: kafka.strimzi.io/v1beta2
               kind: KafkaConnector
@@ -96,7 +97,9 @@ spec:
                   table.include.list: public.orders
                   plugin.name: ${PLUGIN_NAME}
                   publication.name: ${PUBLICATION_NAME}
-                  slot.name: ${COMPONENT_ID}_orders
+                  slot.name: ${SLOT_NAME}
+                  decimal.handling.mode: double
+                  replica.identity.autoset.values: public.orders:FULL
               EOF
               oc apply -f /tmp/connector.yaml
               echo "PASS: KafkaConnector ${COMPONENT_ID}-orders in ${CONNECTOR_NS}"

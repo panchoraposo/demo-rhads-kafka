@@ -1,0 +1,3 @@
+name: app
+namespace: app-dev
+datasource: prometheus-rhads

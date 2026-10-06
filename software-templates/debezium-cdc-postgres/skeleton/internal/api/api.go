@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"${{values.module_path}}/internal/db"
@@ -17,6 +18,7 @@ import (
 
 type Handler struct {
 	store     *store.Store
+	mu        sync.RWMutex
 	db        *db.DB
 	fanout    *kafka.Publisher
 	apicurio  string
@@ -24,7 +26,7 @@ type Handler struct {
 	component string
 }
 
-func Register(mux *http.ServeMux, st *store.Store, database *db.DB, fanout *kafka.Publisher, apicurioURL, topic, component string) {
+func Register(mux *http.ServeMux, st *store.Store, database *db.DB, fanout *kafka.Publisher, apicurioURL, topic, component string) *Handler {
 	h := &Handler{store: st, db: database, fanout: fanout, apicurio: apicurioURL, topic: topic, component: component}
 	mux.HandleFunc("/health", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -35,16 +37,29 @@ func Register(mux *http.ServeMux, st *store.Store, database *db.DB, fanout *kafk
 	mux.HandleFunc("/api/info", h.info)
 	mux.HandleFunc("/api/orders", h.orders)
 	mux.HandleFunc("/api/orders/", h.orderByID)
+	return h
+}
+
+func (h *Handler) SetDB(database *db.DB) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.db = database
+}
+
+func (h *Handler) DB() *db.DB {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return h.db
 }
 
 func (h *Handler) info(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
-		"topic":       h.topic,
-		"apicurio":    h.apicurio,
-		"artifact":    "order-change",
-		"group":       h.component,
-		"db":          h.db != nil,
-		"fanout":      h.fanout != nil,
+		"topic":    h.topic,
+		"apicurio": h.apicurio,
+		"artifact": "order-change",
+		"group":    h.component,
+		"db":       h.DB() != nil,
+		"fanout":   h.fanout != nil,
 	})
 }
 
@@ -94,9 +109,10 @@ func (h *Handler) orders(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	if h.db == nil {
+	database := h.DB()
+	if database == nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
-			"error": "database_unavailable",
+			"error":   "database_unavailable",
 			"message": "Order Desk requires DATABASE_* env (dev namespace with Postgres).",
 		})
 		return
@@ -114,7 +130,7 @@ func (h *Handler) orders(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
-	o, err := h.db.Create(ctx, strings.TrimSpace(body.Customer), body.Amount)
+	o, err := database.Create(ctx, strings.TrimSpace(body.Customer), body.Amount)
 	if err != nil {
 		log.Printf("create order: %v", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "db_error", "message": err.Error()})
@@ -125,14 +141,15 @@ func (h *Handler) orders(w http.ResponseWriter, r *http.Request) {
 	if h.fanout != nil {
 		_ = h.fanout.Emit("c", nil, o)
 	}
-	log.Printf("[orders] create id=%d customer=%q amount=%.2f", o.ID, o.Customer, o.Amount)
+	log.Printf("[orders] CREATE id=%d after=%s", o.ID, o.LogLine())
 	writeJSON(w, http.StatusCreated, o)
 }
 
 func (h *Handler) orderByID(w http.ResponseWriter, r *http.Request) {
-	if h.db == nil {
+	database := h.DB()
+	if database == nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
-			"error": "database_unavailable",
+			"error":   "database_unavailable",
 			"message": "Order Desk requires DATABASE_* env (dev namespace with Postgres).",
 		})
 		return
@@ -178,7 +195,7 @@ func (h *Handler) orderByID(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_request", "message": "status and/or amount required"})
 			return
 		}
-		before, after, err := h.db.Update(ctx, id, statusPtr, amountPtr)
+		before, after, err := database.Update(ctx, id, statusPtr, amountPtr)
 		if err != nil {
 			writeJSON(w, http.StatusNotFound, map[string]string{"error": "not_found", "message": err.Error()})
 			return
@@ -187,10 +204,10 @@ func (h *Handler) orderByID(w http.ResponseWriter, r *http.Request) {
 		if h.fanout != nil {
 			_ = h.fanout.Emit("u", before, after)
 		}
-		log.Printf("[orders] update id=%d before=%+v after=%+v", id, before, after)
+		log.Printf("[orders] UPDATE id=%d before=%s after=%s", id, before.LogLine(), after.LogLine())
 		writeJSON(w, http.StatusOK, after)
 	case http.MethodDelete:
-		before, err := h.db.Delete(ctx, id)
+		before, err := database.Delete(ctx, id)
 		if err != nil {
 			writeJSON(w, http.StatusNotFound, map[string]string{"error": "not_found", "message": err.Error()})
 			return
@@ -199,7 +216,7 @@ func (h *Handler) orderByID(w http.ResponseWriter, r *http.Request) {
 		if h.fanout != nil {
 			_ = h.fanout.Emit("d", before, nil)
 		}
-		log.Printf("[orders] delete id=%d", id)
+		log.Printf("[orders] DELETE id=%d before=%s after=∅", id, before.LogLine())
 		writeJSON(w, http.StatusOK, before)
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)

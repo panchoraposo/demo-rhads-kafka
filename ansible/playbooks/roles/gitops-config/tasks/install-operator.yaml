@@ -65,7 +65,6 @@
           insecure: true
           route:
             enabled: true
-            host: "{{ argocd_host }}"
         controller:
           resources:
             limits:
@@ -94,6 +93,32 @@
     deployment_status.resources | length > 0 and
     deployment_status.resources[0].status.readyReplicas is defined and
     deployment_status.resources[0].status.readyReplicas > 0
+
+# OpenShift GitOps CRD drops unknown fields (spec.server.route.host). Create the
+# short hostname Route used by RHDH / dashboard (argocd.apps.<cluster>).
+- name: Create short Argo CD Route
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: route.openshift.io/v1
+      kind: Route
+      metadata:
+        name: argocd
+        namespace: "{{ gitops_namespace }}"
+        labels:
+          app.kubernetes.io/name: openshift-gitops-server
+      spec:
+        host: "{{ argocd_host }}"
+        to:
+          kind: Service
+          name: openshift-gitops-server
+          weight: 100
+        port:
+          targetPort: http
+        tls:
+          termination: edge
+          insecureEdgeTerminationPolicy: Redirect
+        wildcardPolicy: None
 
 - name: Grant cluster-admin to Argo CD application controller
   kubernetes.core.k8s:

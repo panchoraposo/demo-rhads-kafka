@@ -5,12 +5,16 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
+
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	"${{values.module_path}}/internal/api"
+	"${{values.module_path}}/internal/config"
+	_ "${{values.module_path}}/internal/cve"
 	"${{values.module_path}}/internal/db"
 	"${{values.module_path}}/internal/kafka"
 	"${{values.module_path}}/internal/store"
-	_ "${{values.module_path}}/internal/cve"
 )
 
 func env(k, def string) string {
@@ -21,6 +25,7 @@ func env(k, def string) string {
 }
 
 func main() {
+	config.ApplyFile("application.properties")
 	port := env("PORT", "${{values.port}}")
 	bootstrap := env("KAFKA_BOOTSTRAP_SERVERS", "rhads-kafka-kafka-bootstrap.kafka.svc:9092")
 	topic := env("KAFKA_TOPIC", "${{values.kafka_topic}}")
@@ -31,18 +36,9 @@ func main() {
 	st := store.New()
 	go kafka.Consume(bootstrap, topic, st)
 
-	var database *db.DB
-	if os.Getenv("DATABASE_URL") != "" || os.Getenv("DATABASE_HOST") != "" {
-		d, err := db.OpenFromEnv()
-		if err != nil {
-			log.Printf("WARN: database unavailable (%v); Order Desk writes disabled", err)
-		} else {
-			database = d
-			defer database.Close()
-			log.Printf("database connected (Order Desk writes enabled)")
-		}
-	} else {
-		log.Printf("DATABASE_* not set — Order Desk writes disabled (consumer-only)")
+	database := openDB()
+	if database != nil {
+		defer database.Close()
 	}
 
 	var fanout *kafka.Publisher
@@ -58,9 +54,43 @@ func main() {
 	}
 
 	mux := http.NewServeMux()
-	api.Register(mux, st, database, fanout, apicurio, topic, component)
+	mux.Handle("/metrics", promhttp.Handler())
+	h := api.Register(mux, st, database, fanout, apicurio, topic, component)
+	if database == nil && dbConfigured() {
+		go reconnectDB(h)
+	}
 	mux.Handle("/", http.FileServer(http.Dir(webRoot)))
 
 	log.Printf("CDC Order Desk listening on :%s topic=%s apicurio=%s", port, topic, apicurio)
 	log.Fatal(http.ListenAndServe(":"+port, mux))
+}
+
+func dbConfigured() bool {
+	return os.Getenv("DATABASE_URL") != "" || os.Getenv("DATABASE_HOST") != ""
+}
+
+func openDB() *db.DB {
+	if !dbConfigured() {
+		log.Printf("DATABASE_* not set — Order Desk writes disabled (consumer-only)")
+		return nil
+	}
+	d, err := db.OpenFromEnv()
+	if err != nil {
+		log.Printf("WARN: database unavailable (%v); Order Desk writes disabled until reconnect", err)
+		return nil
+	}
+	log.Printf("database connected (Order Desk writes enabled)")
+	return d
+}
+
+func reconnectDB(h *api.Handler) {
+	for {
+		time.Sleep(5 * time.Second)
+		d := openDB()
+		if d == nil {
+			continue
+		}
+		h.SetDB(d)
+		return
+	}
 }

@@ -1,4 +1,4 @@
-apiVersion: perses.dev/v1alpha1
+apiVersion: perses.dev/v1alpha2
 kind: PersesDashboard
 metadata:
   name: rhads-kafka-overview
@@ -8,92 +8,102 @@ metadata:
   annotations:
     argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
 spec:
-  display:
-    name: RHADS Kafka — Trip Planner events
-    description: Broker health and topic throughput for flow-in / flow-out during the agentic HITL demo
-  duration: 15m
-  refreshInterval: 30s
-  variables:
-    - kind: ListVariable
-      spec:
-        name: namespace
-        allowAllValue: false
-        allowMultiple: false
-        plugin:
-          kind: StaticListVariable
-          spec:
-            values:
-              - kafka
-  panels:
-    kafka_up:
-      kind: Panel
-      spec:
-        display:
-          name: Kafka broker pods ready
-        plugin:
-          kind: StatChart
-          spec:
-            calculation: last-number
-            format:
-              unit: decimal
-        queries:
-          - kind: TimeSeriesQuery
+  config:
+    display:
+      name: RHADS Kafka — Trip Planner events
+      description: Broker health and flow-in / flow-out throughput for the trip planner
+    duration: 15m
+    refreshInterval: 30s
+    variables:
+      - kind: ListVariable
+        spec:
+          name: namespace
+          allowAllValue: false
+          allowMultiple: false
+          plugin:
+            kind: StaticListVariable
             spec:
-              plugin:
-                kind: PrometheusTimeSeriesQuery
-                spec:
-                  query: count(kube_pod_status_ready{namespace="$namespace",condition="true",pod=~".*kafka.*"})
-    topic_messages:
-      kind: Panel
-      spec:
-        display:
-          name: Messages in / out (Kafka topics)
-        plugin:
-          kind: TimeSeriesChart
-          spec: {}
-        queries:
-          - kind: TimeSeriesQuery
+              values:
+                - kafka
+    panels:
+      kafka_up:
+        kind: Panel
+        spec:
+          display:
+            name: Kafka broker pods ready
+          plugin:
+            kind: StatChart
             spec:
-              plugin:
-                kind: PrometheusTimeSeriesQuery
-                spec:
-                  query: sum by (topic) (rate(kafka_topic_partition_current_offset{topic=~"flow-in|flow-out"}[5m]))
-    network_rx:
-      kind: Panel
-      spec:
-        display:
-          name: Kafka pod network receive
-        plugin:
-          kind: TimeSeriesChart
-          spec: {}
-        queries:
-          - kind: TimeSeriesQuery
-            spec:
-              plugin:
-                kind: PrometheusTimeSeriesQuery
-                spec:
-                  query: sum(rate(container_network_receive_bytes_total{namespace="$namespace"}[5m]))
-  layouts:
-    - kind: Grid
-      spec:
-        display:
-          title: Kafka
-        items:
-          - x: 0
-            y: 0
-            width: 6
-            height: 4
-            content:
-              $ref: "#/spec/panels/kafka_up"
-          - x: 6
-            y: 0
-            width: 18
-            height: 8
-            content:
-              $ref: "#/spec/panels/topic_messages"
-          - x: 0
-            y: 8
-            width: 24
-            height: 8
-            content:
-              $ref: "#/spec/panels/network_rx"
+              calculation: last-number
+              format:
+                unit: decimal
+          queries:
+            - kind: TimeSeriesQuery
+              spec:
+                plugin:
+                  kind: PrometheusTimeSeriesQuery
+                  spec:
+                    datasource:
+                      kind: PrometheusDatasource
+                      name: prometheus-rhads
+                    query: sum(kube_pod_status_ready{namespace="kafka",condition="true",pod=~"rhads-kafka-dual-role-.*"})
+      topic_messages:
+        kind: Panel
+        spec:
+          display:
+            name: Trip topics — offset rate (flow-in / flow-out)
+          plugin:
+            kind: TimeSeriesChart
+            spec: {}
+          queries:
+            - kind: TimeSeriesQuery
+              spec:
+                plugin:
+                  kind: PrometheusTimeSeriesQuery
+                  spec:
+                    datasource:
+                      kind: PrometheusDatasource
+                      name: prometheus-rhads
+                    query: sum by (topic) (rate(kafka_topic_partition_current_offset{topic=~"flow-in|flow-out"}[5m]))
+      network_rx:
+        kind: Panel
+        spec:
+          display:
+            name: Kafka pod network receive
+          plugin:
+            kind: TimeSeriesChart
+            spec: {}
+          queries:
+            - kind: TimeSeriesQuery
+              spec:
+                plugin:
+                  kind: PrometheusTimeSeriesQuery
+                  spec:
+                    datasource:
+                      kind: PrometheusDatasource
+                      name: prometheus-rhads
+                    query: sum(rate(container_network_receive_bytes_total{namespace="kafka",pod=~"rhads-kafka-dual-role-.*"}[5m]))
+    layouts:
+      - kind: Grid
+        spec:
+          display:
+            title: Kafka
+          items:
+            - x: 0
+              y: 0
+              width: 6
+              height: 4
+              content:
+                $ref: "#/spec/panels/kafka_up"
+            - x: 6
+              y: 0
+              width: 18
+              height: 8
+              content:
+                $ref: "#/spec/panels/topic_messages"
+            - x: 0
+              y: 8
+              width: 24
+              height: 8
+              content:
+                $ref: "#/spec/panels/network_rx"

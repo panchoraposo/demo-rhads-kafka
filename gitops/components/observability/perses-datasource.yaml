@@ -1,4 +1,4 @@
-apiVersion: perses.dev/v1alpha1
+apiVersion: perses.dev/v1alpha2
 kind: PersesDatasource
 metadata:
   name: prometheus-rhads
@@ -8,8 +8,18 @@ metadata:
   annotations:
     argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
 spec:
+  # Perses 0.58 rejects tlsConfig inside the plugin spec. TLS and the
+  # in-cluster token are configured on the CR client instead.
+  client:
+    tls:
+      enable: true
+      insecureSkipVerify: true
+    kubernetesAuth:
+      enable: true
   config:
     default: true
+    display:
+      name: Prometheus
     plugin:
       kind: PrometheusDatasource
       spec:
@@ -17,5 +27,3 @@ spec:
           kind: HTTPProxy
           spec:
             url: https://thanos-querier.openshift-monitoring.svc.cluster.local:9091
-            tlsConfig:
-              insecureSkipVerify: true

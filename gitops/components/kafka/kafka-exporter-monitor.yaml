@@ -1,0 +1,32 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: rhads-kafka-kafka-exporter
+  namespace: kafka
+  labels:
+    app.kubernetes.io/name: kafka-exporter
+    app.kubernetes.io/part-of: rhads-demo
+    strimzi.io/cluster: rhads-kafka
+spec:
+  selector:
+    app.kubernetes.io/name: kafka-exporter
+    strimzi.io/cluster: rhads-kafka
+  ports:
+    - name: metrics
+      port: 9404
+      targetPort: 9404
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: rhads-kafka-kafka-exporter
+  namespace: kafka
+  labels:
+    app.kubernetes.io/part-of: rhads-demo
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: kafka-exporter
+  endpoints:
+    - port: metrics
+      interval: 30s

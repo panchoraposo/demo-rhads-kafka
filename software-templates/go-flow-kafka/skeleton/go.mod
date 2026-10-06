@@ -4,7 +4,7 @@ module ${{values.module_path}}
 go 1.21
 
 require (
-	github.com/IBM/sarama v1.38.1
+	github.com/IBM/sarama v1.43.3
 	github.com/cloudevents/sdk-go/v2 v2.14.0
 	github.com/dgrijalva/jwt-go v3.2.0+incompatible
 	github.com/gorilla/websocket v1.4.2
@@ -12,3 +12,6 @@ require (
 	golang.org/x/net v0.17.0
 	gopkg.in/yaml.v2 v2.4.0
 )
+
+// Keep tidy on go-toolset 1.21 (newer go-internal needs go>=1.23).
+replace github.com/rogpeppe/go-internal => github.com/rogpeppe/go-internal v1.12.0

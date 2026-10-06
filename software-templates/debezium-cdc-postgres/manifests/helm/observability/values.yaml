@@ -1,0 +1,4 @@
+name: app
+namespace: app-dev
+datasource: prometheus-rhads
+topic: app.public.orders

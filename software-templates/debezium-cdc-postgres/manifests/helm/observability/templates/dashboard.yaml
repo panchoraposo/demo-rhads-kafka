@@ -1,0 +1,148 @@
+apiVersion: perses.dev/v1alpha2
+kind: PersesDashboard
+metadata:
+  name: {{ .Values.name }}-cdc
+  namespace: rhads-observability
+  labels:
+    app.kubernetes.io/part-of: rhads-demo
+    app.kubernetes.io/name: {{ .Values.name }}
+spec:
+  config:
+    display:
+      name: CDC — {{ .Values.name }}
+      description: Postgres, Debezium and {{ .Values.topic }} for {{ .Values.name }}
+    duration: 15m
+    refreshInterval: 30s
+    panels:
+      postgres_up:
+        kind: Panel
+        spec:
+          display:
+            name: Postgres pods ready
+          plugin:
+            kind: StatChart
+            spec:
+              calculation: last-number
+              format:
+                unit: decimal
+          queries:
+            - kind: TimeSeriesQuery
+              spec:
+                plugin:
+                  kind: PrometheusTimeSeriesQuery
+                  spec:
+                    datasource:
+                      kind: PrometheusDatasource
+                      name: {{ .Values.datasource }}
+                    query: sum(kube_pod_status_ready{namespace="{{ .Values.namespace }}",condition="true",pod=~".*-postgres-.*"})
+      debezium_up:
+        kind: Panel
+        spec:
+          display:
+            name: Debezium Connect pods ready
+          plugin:
+            kind: StatChart
+            spec:
+              calculation: last-number
+              format:
+                unit: decimal
+          queries:
+            - kind: TimeSeriesQuery
+              spec:
+                plugin:
+                  kind: PrometheusTimeSeriesQuery
+                  spec:
+                    datasource:
+                      kind: PrometheusDatasource
+                      name: {{ .Values.datasource }}
+                    query: sum(kube_pod_status_ready{namespace="debezium",condition="true",pod=~"rhads-debezium-connect-.*"})
+      orders_topic:
+        kind: Panel
+        spec:
+          display:
+            name: {{ .Values.topic }} offset rate
+          plugin:
+            kind: TimeSeriesChart
+            spec: {}
+          queries:
+            - kind: TimeSeriesQuery
+              spec:
+                plugin:
+                  kind: PrometheusTimeSeriesQuery
+                  spec:
+                    datasource:
+                      kind: PrometheusDatasource
+                      name: {{ .Values.datasource }}
+                    query: sum by (topic) (rate(kafka_topic_partition_current_offset{topic="{{ .Values.topic }}"}[5m]))
+      orders_lag:
+        kind: Panel
+        spec:
+          display:
+            name: Consumer lag
+          plugin:
+            kind: TimeSeriesChart
+            spec: {}
+          queries:
+            - kind: TimeSeriesQuery
+              spec:
+                plugin:
+                  kind: PrometheusTimeSeriesQuery
+                  spec:
+                    datasource:
+                      kind: PrometheusDatasource
+                      name: {{ .Values.datasource }}
+                    query: sum by (consumergroup, topic) (kafka_consumergroup_lag{topic="{{ .Values.topic }}"})
+      app_cpu:
+        kind: Panel
+        spec:
+          display:
+            name: {{ .Values.name }} CPU
+          plugin:
+            kind: TimeSeriesChart
+            spec: {}
+          queries:
+            - kind: TimeSeriesQuery
+              spec:
+                plugin:
+                  kind: PrometheusTimeSeriesQuery
+                  spec:
+                    datasource:
+                      kind: PrometheusDatasource
+                      name: {{ .Values.datasource }}
+                    query: sum by (pod) (rate(container_cpu_usage_seconds_total{namespace="{{ .Values.namespace }}",container!="",container!="POD"}[5m]))
+    layouts:
+      - kind: Grid
+        spec:
+          display:
+            title: {{ .Values.name }}
+          items:
+            - x: 0
+              y: 0
+              width: 6
+              height: 4
+              content:
+                $ref: "#/spec/panels/postgres_up"
+            - x: 6
+              y: 0
+              width: 6
+              height: 4
+              content:
+                $ref: "#/spec/panels/debezium_up"
+            - x: 12
+              y: 0
+              width: 12
+              height: 8
+              content:
+                $ref: "#/spec/panels/orders_topic"
+            - x: 0
+              y: 8
+              width: 12
+              height: 8
+              content:
+                $ref: "#/spec/panels/orders_lag"
+            - x: 12
+              y: 8
+              width: 12
+              height: 8
+              content:
+                $ref: "#/spec/panels/app_cpu"

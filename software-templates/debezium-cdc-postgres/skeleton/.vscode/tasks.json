@@ -1,0 +1,35 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "devfile: Run Order Desk (8080)",
+      "type": "shell",
+      "command": "bash -c 'set -euo pipefail; export PATH=/usr/local/go/bin:$PATH; echo Reading application.properties; go run ./cmd/server'",
+      "options": { "cwd": "${workspaceFolder}" },
+      "group": { "kind": "test", "isDefault": true },
+      "presentation": { "reveal": "always", "panel": "dedicated" },
+      "problemMatcher": []
+    },
+    {
+      "label": "devfile: Configure Sigstore git commit signing",
+      "type": "shell",
+      "command": "bash .devcontainer/setup-gitsign.sh",
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": []
+    },
+    {
+      "label": "devfile: Verify Sigstore-signed HEAD",
+      "type": "shell",
+      "command": "bash .devcontainer/verify-gitsign.sh",
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": []
+    },
+    {
+      "label": "devfile: go mod tidy via Nexus",
+      "type": "shell",
+      "command": "bash -c 'set -euo pipefail; export PATH=/usr/local/go/bin:$PATH; go mod tidy && go mod vendor'",
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": []
+    }
+  ]
+}

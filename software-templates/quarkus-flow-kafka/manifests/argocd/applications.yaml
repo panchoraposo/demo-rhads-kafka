@@ -208,3 +208,33 @@ spec:
       labels:
         argocd.argoproj.io/managed-by: ${{ values.gitops_namespace }}
         rhads.demo/ci-secrets: "true"
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: ${{ values.component_id }}-observability
+  namespace: ${{ values.gitops_namespace }}
+  labels:
+    rht-gitops.com/${{ values.gitops_namespace }}: ${{ values.component_id }}
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io/foreground
+spec:
+  project: ${{ values.gitops_project }}
+  source:
+    repoURL: ${{ values.source_repository_gitops }}
+    targetRevision: HEAD
+    path: ./helm/observability
+    helm:
+      values: |
+        name: ${{ values.component_id }}
+        namespace: ${{ values.component_id }}-dev
+        datasource: prometheus-rhads
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: rhads-observability
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - SkipDryRunOnMissingResource=true

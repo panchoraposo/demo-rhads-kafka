@@ -34,7 +34,10 @@ func Consume(bootstrap, topic string, st *store.Store) {
 		}
 		log.Printf("consuming CDC topic %s", topic)
 		for msg := range pc.Messages() {
-			st.Add(parse(msg.Value))
+			ev := parse(msg.Value)
+			log.Printf("[cdc] %s id=%s before=%s after=%s lsn=%s tx=%s",
+				opName(ev.Op), ev.ID, rowLog(ev.Before), rowLog(ev.After), ev.LSN, ev.TxID)
+			st.Add(ev)
 		}
 		_ = pc.Close()
 		_ = client.Close()
@@ -128,6 +131,16 @@ func parse(b []byte) store.Event {
 	if after, ok := payload["after"].(map[string]any); ok && after != nil {
 		e.After = after
 	}
+	if src, ok := payload["source"].(map[string]any); ok && src != nil {
+		e.LSN = scalar(src["lsn"])
+		e.TxID = scalar(src["txId"])
+		if s, ok := src["schema"].(string); ok {
+			e.Schema = s
+		}
+		if t, ok := src["table"].(string); ok {
+			e.Table = t
+		}
+	}
 	row := e.After
 	if row == nil {
 		row = e.Before
@@ -158,4 +171,65 @@ func parse(b []byte) store.Event {
 		}
 	}
 	return e
+}
+
+func opName(op string) string {
+	switch op {
+	case "c":
+		return "CREATE"
+	case "u":
+		return "UPDATE"
+	case "d":
+		return "DELETE"
+	case "r":
+		return "READ"
+	default:
+		if op == "" {
+			return "?"
+		}
+		return op
+	}
+}
+
+func rowLog(row map[string]any) string {
+	if len(row) == 0 {
+		return "∅"
+	}
+	return fmt.Sprintf("status=%s customer=%s amount=%s id=%s",
+		scalar(row["status"]), scalar(row["customer"]), amountText(row["amount"]), scalar(row["id"]))
+}
+
+func amountText(v any) string {
+	switch a := v.(type) {
+	case float64:
+		return fmt.Sprintf("%.2f", a)
+	case json.Number:
+		f, err := a.Float64()
+		if err != nil {
+			return a.String()
+		}
+		return fmt.Sprintf("%.2f", f)
+	case string:
+		return a
+	default:
+		return scalar(v)
+	}
+}
+
+func scalar(v any) string {
+	switch t := v.(type) {
+	case nil:
+		return ""
+	case string:
+		return t
+	case float64:
+		if t == float64(int64(t)) {
+			return fmt.Sprintf("%.0f", t)
+		}
+		return fmt.Sprintf("%v", t)
+	case json.Number:
+		return t.String()
+	default:
+		return fmt.Sprint(t)
+	}
 }

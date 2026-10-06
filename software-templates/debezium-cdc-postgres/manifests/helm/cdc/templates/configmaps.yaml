@@ -5,17 +5,25 @@ metadata:
   labels:
     {{- include "cdc.labels" . | nindent 4 }}
 data:
-  01-orders.sql: |
-    -- Demo orders table + logical replication publication for Debezium (pgoutput).
+  cdc.conf: |
+    wal_level = logical
+    max_wal_senders = 10
+    max_replication_slots = 10
+  01-orders.sh: |
+    # Sourced from postgresql-start (after create_users). Init would run too early.
+    psql -v ON_ERROR_STOP=1 --dbname "{{ .Values.db.name }}" <<'SQL'
     CREATE TABLE IF NOT EXISTS public.orders (
       id       SERIAL PRIMARY KEY,
       customer TEXT NOT NULL,
       amount   NUMERIC(12, 2) NOT NULL,
       status   TEXT NOT NULL DEFAULT 'new'
     );
-
     ALTER ROLE {{ .Values.db.user }} WITH REPLICATION;
-
+    ALTER TABLE public.orders OWNER TO {{ .Values.db.user }};
+    -- FULL puts the previous row in UPDATE and DELETE events (before).
+    ALTER TABLE public.orders REPLICA IDENTITY FULL;
+    GRANT ALL ON SCHEMA public TO {{ .Values.db.user }};
+    GRANT ALL ON SEQUENCE public.orders_id_seq TO {{ .Values.db.user }};
     DO $$
     BEGIN
       IF NOT EXISTS (SELECT 1 FROM pg_publication WHERE pubname = '{{ .Values.connector.publicationName }}') THEN
@@ -23,6 +31,7 @@ data:
       END IF;
     END
     $$;
+    SQL
 ---
 apiVersion: v1
 kind: ConfigMap

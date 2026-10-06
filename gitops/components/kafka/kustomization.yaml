@@ -8,3 +8,4 @@ resources:
   - topics.yaml
   - kafka-user-console.yaml
   - console.yaml
+  - kafka-exporter-monitor.yaml

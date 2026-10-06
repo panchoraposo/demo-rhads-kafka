@@ -37,39 +37,51 @@ spec:
     spec:
       containers:
         - name: postgres
-          image: docker.io/library/postgres:16
+          # Official docker.io/library/postgres cannot chmod PGDATA under OpenShift restricted-v2.
+          image: registry.redhat.io/rhel9/postgresql-16:latest
           imagePullPolicy: IfNotPresent
-          args:
-            - -c
-            - wal_level=logical
-            - -c
-            - max_wal_senders=10
-            - -c
-            - max_replication_slots=10
-            - -c
-            - max_connections=100
-          envFrom:
-            - secretRef:
-                name: {{ include "cdc.name" . }}-db-credentials
+          env:
+            - name: POSTGRESQL_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "cdc.name" . }}-db-credentials
+                  key: POSTGRES_USER
+            - name: POSTGRESQL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "cdc.name" . }}-db-credentials
+                  key: POSTGRES_PASSWORD
+            - name: POSTGRESQL_DATABASE
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "cdc.name" . }}-db-credentials
+                  key: POSTGRES_DB
+            - name: POSTGRESQL_MAX_CONNECTIONS
+              value: "100"
           ports:
             - name: postgres
               containerPort: 5432
               protocol: TCP
           volumeMounts:
             - name: data
-              mountPath: /var/lib/postgresql/data
-              subPath: pgdata
+              mountPath: /var/lib/pgsql/data
             - name: init
-              mountPath: /docker-entrypoint-initdb.d
+              mountPath: /opt/app-root/src/postgresql-start
+            - name: cfg
+              mountPath: /opt/app-root/src/postgresql-cfg
+          startupProbe:
+            exec:
+              command: ["pg_isready", "-U", "{{ .Values.db.user }}", "-d", "{{ .Values.db.name }}"]
+            failureThreshold: 30
+            periodSeconds: 5
           readinessProbe:
             exec:
               command: ["pg_isready", "-U", "{{ .Values.db.user }}", "-d", "{{ .Values.db.name }}"]
-            initialDelaySeconds: 5
             periodSeconds: 5
           livenessProbe:
             exec:
               command: ["pg_isready", "-U", "{{ .Values.db.user }}", "-d", "{{ .Values.db.name }}"]
-            initialDelaySeconds: 15
+            initialDelaySeconds: 30
             periodSeconds: 10
           resources:
             requests:
@@ -85,6 +97,16 @@ spec:
         - name: init
           configMap:
             name: {{ include "cdc.name" . }}-postgres-init
+            defaultMode: 0755
+            items:
+              - key: 01-orders.sh
+                path: 01-orders.sh
+        - name: cfg
+          configMap:
+            name: {{ include "cdc.name" . }}-postgres-init
+            items:
+              - key: cdc.conf
+                path: cdc.conf
 ---
 apiVersion: v1
 kind: Service

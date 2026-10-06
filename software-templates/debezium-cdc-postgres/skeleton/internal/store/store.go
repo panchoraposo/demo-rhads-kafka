@@ -13,16 +13,20 @@ type Event struct {
 	Status    string         `json:"status"`
 	Before    map[string]any `json:"before,omitempty"`
 	After     map[string]any `json:"after,omitempty"`
+	LSN       string         `json:"lsn,omitempty"`
+	TxID      string         `json:"txId,omitempty"`
+	Schema    string         `json:"schema,omitempty"`
+	Table     string         `json:"table,omitempty"`
 	Raw       string         `json:"raw"`
 	Received  time.Time      `json:"received"`
 	LatencyMs *int64         `json:"latencyMs,omitempty"`
 }
 
 type Store struct {
-	mu       sync.RWMutex
-	events   []Event
-	subs     map[chan Event]struct{}
-	writes   map[string]time.Time
+	mu     sync.RWMutex
+	events []Event
+	subs   map[chan Event]struct{}
+	writes map[string]time.Time
 }
 
 func New() *Store {

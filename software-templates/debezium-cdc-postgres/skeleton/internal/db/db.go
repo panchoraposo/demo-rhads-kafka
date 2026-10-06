@@ -148,6 +148,14 @@ func env(k, def string) string {
 	return def
 }
 
+// LogLine is the compact before/after text written to the Order Desk log.
+func (o *Order) LogLine() string {
+	if o == nil {
+		return "∅"
+	}
+	return fmt.Sprintf("status=%s customer=%s amount=%.2f id=%d", o.Status, o.Customer, o.Amount, o.ID)
+}
+
 func (o *Order) AsMap() map[string]any {
 	if o == nil {
 		return nil

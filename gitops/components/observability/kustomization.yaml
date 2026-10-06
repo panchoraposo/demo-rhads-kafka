@@ -6,4 +6,5 @@ resources:
   - perses-datasource.yaml
   - perses-dashboard-kafka.yaml
   - perses-dashboard-apps.yaml
+  - perses-dashboard-cdc.yaml
   - rbac.yaml

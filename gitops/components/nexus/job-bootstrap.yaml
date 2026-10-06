@@ -77,25 +77,20 @@ spec:
                      -H 'Content-Type: application/json' \
                      -d '{"name":"npm-group","online":true,"storage":{"blobStoreName":"default","strictContentTypeValidation":true},"group":{"memberNames":["npm-hosted","npm-proxy"]}}' \
                 || echo "npm-group already present"
-              echo "--- go proxy + hosted + group (proxy.golang.org) ---"
+              echo "--- go proxy + group (proxy.golang.org) ---"
+              # Nexus OSS has go proxy/group only (no go hosted in 3.76).
               if ! curl -sf "${AUTH[@]}" "${NEXUS}/service/rest/v1/repositories/go/proxy/go-proxy" >/dev/null; then
                 curl -sf "${AUTH[@]}" -X POST "${NEXUS}/service/rest/v1/repositories/go/proxy" \
                   -H 'Content-Type: application/json' \
                   -d '{"name":"go-proxy","online":true,"storage":{"blobStoreName":"default","strictContentTypeValidation":true},"proxy":{"remoteUrl":"https://proxy.golang.org/","contentMaxAge":1440,"metadataMaxAge":1440},"negativeCache":{"enabled":true,"timeToLive":1440},"httpClient":{"blocked":false,"autoBlock":true}}' \
                   || echo "go-proxy create returned non-2xx"
               fi
-              if ! curl -sf "${AUTH[@]}" "${NEXUS}/service/rest/v1/repositories/go/hosted/go-hosted" >/dev/null; then
-                curl -sf "${AUTH[@]}" -X POST "${NEXUS}/service/rest/v1/repositories/go/hosted" \
-                  -H 'Content-Type: application/json' \
-                  -d '{"name":"go-hosted","online":true,"storage":{"blobStoreName":"default","strictContentTypeValidation":true,"writePolicy":"ALLOW"}}' \
-                  || true
-              fi
               curl -sf "${AUTH[@]}" -X POST "${NEXUS}/service/rest/v1/repositories/go/group" \
                 -H 'Content-Type: application/json' \
-                -d '{"name":"go-group","online":true,"storage":{"blobStoreName":"default","strictContentTypeValidation":true},"group":{"memberNames":["go-hosted","go-proxy"]}}' \
+                -d '{"name":"go-group","online":true,"storage":{"blobStoreName":"default","strictContentTypeValidation":true},"group":{"memberNames":["go-proxy"]}}' \
                 || curl -sf "${AUTH[@]}" -X PUT "${NEXUS}/service/rest/v1/repositories/go/group/go-group" \
                      -H 'Content-Type: application/json' \
-                     -d '{"name":"go-group","online":true,"storage":{"blobStoreName":"default","strictContentTypeValidation":true},"group":{"memberNames":["go-hosted","go-proxy"]}}' \
+                     -d '{"name":"go-group","online":true,"storage":{"blobStoreName":"default","strictContentTypeValidation":true},"group":{"memberNames":["go-proxy"]}}' \
                 || echo "go-group already present"
               echo "--- raw hosted (preloaded Maven local-repo tarball for Tekton) ---"
               if ! curl -sf "${AUTH[@]}" "${NEXUS}/service/rest/v1/repositories/raw/hosted/raw-hosted" >/dev/null; then
@@ -133,7 +128,7 @@ spec:
               warm "${NPM}/lodash/-/lodash-4.17.20.tgz"
               echo "--- warm go-group (trip-go demo modules) ---"
               GO="${NEXUS}/repository/go-group"
-              warm "${GO}/github.com/IBM/sarama/@v/v1.38.1.info"
+              warm "${GO}/github.com/!i!b!m/sarama/@v/v1.43.3.info"
               warm "${GO}/github.com/cloudevents/sdk-go/v2/@v/v2.14.0.info"
               warm "${GO}/github.com/prometheus/client_golang/@v/v1.16.0.info"
               warm "${GO}/gopkg.in/yaml.v2/@v/v2.4.0.info"

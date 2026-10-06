@@ -180,6 +180,8 @@
     .diff .before { color: #ff8a80; }
     .diff .after { color: #7ee0a8; }
     .diff .chg { background: rgba(240, 171, 0, 0.18); border-radius: 3px; padding: 0 0.2rem; }
+    .diff .chgline { color: var(--warn); }
+    .diff .src { color: var(--muted); font-size: 0.65rem; }
     .empty { padding: 2rem 1rem; text-align: center; color: var(--muted); }
     .err { color: #ff8a80; font-size: 0.85rem; min-height: 1.2em; }
     .selected { outline: 1px solid rgba(43, 154, 243, 0.55); background: rgba(43, 154, 243, 0.08); }
@@ -280,25 +282,66 @@
       return Number(a).toFixed(2);
     }
 
+    function fieldVal(row, k) {
+      if (!row || row[k] == null || row[k] === "") return "";
+      return k === "amount" ? fmtAmount(row[k]) : String(row[k]);
+    }
+
     function rowLine(row, peer, side) {
       if (!row) return `<span class="${side}">∅</span>`;
       const keys = ["status", "customer", "amount", "id"];
       const parts = keys.map((k) => {
-        if (!(k in row)) return "";
-        let v = row[k];
-        if (k === "amount") v = fmtAmount(v);
-        const changed = peer && String(row[k]) !== String(peer[k]);
+        const v = fieldVal(row, k);
+        if (!v) return "";
+        const changed = peer && fieldVal(row, k) !== fieldVal(peer, k);
         const bit = `${k}=${v}`;
         return changed ? `<span class="chg">${escapeHtml(bit)}</span>` : escapeHtml(bit);
       }).filter(Boolean);
+      if (!parts.length) return `<span class="${side}">∅</span>`;
       return `<span class="${side}">${parts.join(" ")}</span>`;
+    }
+
+    function sourceOf(e) {
+      const out = {
+        lsn: e.lsn ? String(e.lsn) : "",
+        txId: e.txId ? String(e.txId) : "",
+        schema: e.schema || "",
+        table: e.table || "",
+      };
+      if ((out.lsn && out.txId) || !e.raw) return out;
+      try {
+        const raw = JSON.parse(e.raw);
+        const src = (raw.payload && raw.payload.source) || raw.source || {};
+        if (!out.lsn && src.lsn != null) out.lsn = String(src.lsn);
+        if (!out.txId && src.txId != null) out.txId = String(src.txId);
+        if (!out.schema && src.schema) out.schema = String(src.schema);
+        if (!out.table && src.table) out.table = String(src.table);
+      } catch (_) { /* raw is optional */ }
+      return out;
+    }
+
+    function changesLine(e) {
+      if (!e.before || !e.after) return "";
+      const keys = ["status", "customer", "amount"];
+      return keys.map((k) => {
+        const a = fieldVal(e.before, k);
+        const b = fieldVal(e.after, k);
+        if (a === b) return "";
+        return `${k} ${a || "∅"} → ${b || "∅"}`;
+      }).filter(Boolean).join(" · ");
     }
 
     function diffBlock(e) {
       if (!e.before && !e.after) return `<span class="hint">—</span>`;
+      const changed = changesLine(e);
+      const src = sourceOf(e);
+      const where = src.schema && src.table ? `${src.schema}.${src.table}` : (src.table || "");
+      const meta = [where, src.lsn ? `lsn ${src.lsn}` : "", src.txId ? `tx ${src.txId}` : ""].filter(Boolean).join(" · ");
       return `<div class="diff" onclick="event.stopPropagation()">
         <div><span class="label">before </span>${rowLine(e.before, e.after, "before")}</div>
         <div><span class="label">after  </span>${rowLine(e.after, e.before, "after")}</div>
+        ${changed ? `<div class="chgline">${escapeHtml(changed)}</div>` : ""}
+        ${meta ? `<div class="src">${escapeHtml(meta)}</div>` : ""}
       </div>`;
     }
 
@@ -310,13 +353,23 @@
         .replaceAll('"', "&quot;");
     }
 
+    // When Debezium omits before, use the previous row already in the feed.
+    function enrich(list) {
+      return list.map((e, i) => {
+        if (e.before || (e.op !== "u" && e.op !== "d")) return e;
+        const prev = list.slice(i + 1).find((p) => String(p.id) === String(e.id) && p.after);
+        if (!prev) return e;
+        return Object.assign({}, e, { before: prev.after });
+      });
+    }
+
     function render() {
       if (!events.length) {
         rowsEl.innerHTML = `<tr><td class="empty" colspan="7">Waiting for DB changes…</td></tr>`;
         syncButtons();
         return;
       }
-      rowsEl.innerHTML = events.map((e) => {
+      rowsEl.innerHTML = enrich(events).map((e) => {
         const lat = e.latencyMs != null ? `${e.latencyMs} ms` : "—";
         const sel = String(e.id) === String(selectedId) ? "selected" : "";
         return `<tr class="${sel}" data-id="${escapeHtml(e.id)}" onclick="selectRow('${escapeHtml(e.id)}')">
@@ -476,6 +529,7 @@
       await loadInfo();
       await loadEvents();
       connectSSE();
+      setInterval(() => { loadInfo().catch(() => {}); }, 4000);
     })();
   </script>
 </body>
