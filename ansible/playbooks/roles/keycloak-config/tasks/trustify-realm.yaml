@@ -1,6 +1,6 @@
 ---
 - name: Refresh Keycloak admin token
-  ansible.builtin.include_tasks: get-token.yaml
+  ansible.builtin.include_tasks: refresh-token.yaml
 
 - name: Check trustify realm
   ansible.builtin.uri:

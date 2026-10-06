@@ -11,9 +11,14 @@ spec:
   # Perses 0.58 rejects tlsConfig inside the plugin spec. TLS and the
   # in-cluster token are configured on the CR client instead.
   client:
+    # insecureSkipVerify is ignored by this Perses build. The pod already
+    # mounts the cluster service CA at /ca/service-ca.crt; Thanos Querier is
+    # signed by that CA.
     tls:
       enable: true
-      insecureSkipVerify: true
+      caCert:
+        type: file
+        certPath: /ca/service-ca.crt
     kubernetesAuth:
       enable: true
   config:
@@ -26,4 +31,7 @@ spec:
         proxy:
           kind: HTTPProxy
           spec:
+            # Perses only applies the operator-managed TLS secret when the
+            # proxy names it. Without this, Thanos's service cert is rejected.
+            secret: prometheus-rhads-secret
             url: https://thanos-querier.openshift-monitoring.svc.cluster.local:9091

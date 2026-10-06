@@ -76,19 +76,19 @@ spec:
             title: Applications
           items:
             - x: 0
-              y: 0
+              "y": 0
               width: 12
               height: 8
               content:
                 $ref: "#/spec/panels/pod_cpu"
             - x: 12
-              y: 0
+              "y": 0
               width: 12
               height: 8
               content:
                 $ref: "#/spec/panels/pod_mem"
             - x: 0
-              y: 8
+              "y": 8
               width: 24
               height: 8
               content:

@@ -9,13 +9,15 @@
   changed_when: true
   when: rhads_manage_odf_storagecluster | default(true) | bool
 
+# Lean profile leaves the PV-pool agent at 400Mi. Large image layers OOM it,
+# NooBaa marks the bucket InvalidBucketState, and Quay push returns 500.
+# Run on every install: a retry sees ODF already present and would otherwise
+# skip this, leaving the agent at 400Mi.
 - name: Raise NooBaa PV-pool memory so image pushes do not OOM the backing-store agent
   ansible.builtin.shell: |
     set -euo pipefail
     CTX="{{ oc_context }}"
     NS="{{ odf_namespace }}"
-    PATCH='{"spec":{"defaultBackingStoreSpec":{"type":"pv-pool","pvPool":{"numVolumes":1,"resources":{"requests":{"cpu":"250m","memory":"2Gi"},"limits":{"cpu":"1","memory":"4Gi"}}}}}}'
-    oc --context "$CTX" -n "$NS" patch noobaa noobaa --type=merge -p "$PATCH" || true
     for i in $(seq 1 30); do
       if oc --context "$CTX" -n "$NS" get backingstore noobaa-default-backing-store >/dev/null 2>&1; then
         break
@@ -23,11 +25,10 @@
       sleep 10
     done
     oc --context "$CTX" -n "$NS" patch backingstore noobaa-default-backing-store --type=merge -p \
-      '{"spec":{"pvPool":{"resources":{"requests":{"cpu":"250m","memory":"2Gi","storage":"50Gi"},"limits":{"cpu":"1","memory":"4Gi"}}}}}'
+      '{"spec":{"pvPool":{"resources":{"requests":{"cpu":"500m","memory":"2Gi","storage":"50Gi"},"limits":{"cpu":"1","memory":"4Gi"}}}}}'
   args:
     executable: /bin/bash
   changed_when: true
-  when: rhads_manage_odf | default(true) | bool
 
 - name: Apply ODF ObjectBucketClaims
   ansible.builtin.command:

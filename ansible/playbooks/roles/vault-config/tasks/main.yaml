@@ -70,17 +70,19 @@
   changed_when: true
 
 - name: Wait for ClusterSecretStore vault-backend
-  kubernetes.core.k8s_info:
-    api_version: external-secrets.io/v1
-    kind: ClusterSecretStore
-    name: vault-backend
+  ansible.builtin.command:
+    argv:
+      - oc
+      - --context
+      - "{{ oc_context }}"
+      - get
+      - clustersecretstore
+      - vault-backend
+      - -o
+      - 'jsonpath={range .status.conditions[?(@.type=="Ready")]}{.status}{end}'
   register: css_vault
+  changed_when: false
+  failed_when: false
   retries: 60
   delay: 10
-  until: >
-    css_vault.resources | default([]) | length > 0 and
-    (
-      (css_vault.resources[0].status.conditions | default([]) | selectattr('type', 'equalto', 'Ready') | list | length > 0)
-      and
-      (css_vault.resources[0].status.conditions | selectattr('type', 'equalto', 'Ready') | list)[0].status == 'True'
-    )
+  until: (css_vault.stdout | default('')) == 'True'

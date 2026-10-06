@@ -1,4 +1,9 @@
 ---
+# Workshop SSO access tokens expire in 60s. Refresh before this file and again
+# before each client PUT so a long user-import does not 401 the update.
+- name: Refresh Keycloak admin token
+  ansible.builtin.include_tasks: refresh-token.yaml
+
 - name: Read backstage client
   ansible.builtin.uri:
     url: "https://{{ keycloak_hostname }}/admin/realms/{{ keycloak_realm }}/clients?clientId={{ keycloak_client_id }}"
@@ -30,6 +35,9 @@
 
 # Keycloak GET representations use secret: "**********". Putting that
 # representation back would replace the rotated secret and break Hub login.
+- name: Refresh Keycloak admin token before backstage client update
+  ansible.builtin.include_tasks: refresh-token.yaml
+
 - name: Update backstage redirect URIs
   ansible.builtin.uri:
     url: "https://{{ keycloak_hostname }}/admin/realms/{{ keycloak_realm }}/clients/{{ client_info.json[0].id }}"
@@ -147,6 +155,9 @@
 
 # POST 409 leaves a stale client. gitsign in Dev Spaces cannot open a browser, so
 # it uses the OOB redirect URN; Keycloak 26 treats "*" as http(s) only.
+- name: Refresh Keycloak admin token before RHTAS client update
+  ansible.builtin.include_tasks: refresh-token.yaml
+
 - name: Update Fulcio / RHTAS redirect URIs
   ansible.builtin.uri:
     url: "https://{{ keycloak_hostname }}/admin/realms/{{ keycloak_realm }}/clients/{{ tas_client_info.json[0].id }}"

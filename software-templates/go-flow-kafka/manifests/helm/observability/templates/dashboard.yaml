@@ -96,25 +96,25 @@ spec:
             title: {{ .Values.name }}
           items:
             - x: 0
-              y: 0
+              "y": 0
               width: 6
               height: 4
               content:
                 $ref: "#/spec/panels/kafka_up"
             - x: 6
-              y: 0
+              "y": 0
               width: 18
               height: 8
               content:
                 $ref: "#/spec/panels/topic_messages"
             - x: 0
-              y: 8
+              "y": 8
               width: 12
               height: 8
               content:
                 $ref: "#/spec/panels/app_cpu"
             - x: 12
-              y: 8
+              "y": 8
               width: 12
               height: 8
               content:

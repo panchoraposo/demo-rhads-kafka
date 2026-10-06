@@ -17,28 +17,29 @@
     src: "{{ output_file }}"
 
 - name: Wait for GitOps Operator CSV to succeed
-  kubernetes.core.k8s_info:
-    api_version: operators.coreos.com/v1alpha1
-    kind: ClusterServiceVersion
-    namespace: openshift-gitops-operator
-  register: gitops_csvs
-  until: >
-    gitops_csvs.resources | selectattr('metadata.name', 'search', 'gitops') |
-    selectattr('status.phase', 'equalto', 'Succeeded') | list | length > 0
-  retries: 40
-  delay: 15
+  ansible.builtin.include_tasks: "{{ playbook_dir }}/roles/gitops-bootstrap/tasks/wait-csv.yaml"
+  vars:
+    csv:
+      ns: openshift-gitops-operator
+      match: gitops
 
 - name: Wait for GitOps Operator Deployment to be ready
-  kubernetes.core.k8s_info:
-    api_version: apps/v1
-    kind: Deployment
-    name: openshift-gitops-operator-controller-manager
-    namespace: openshift-gitops-operator
+  ansible.builtin.command:
+    argv:
+      - oc
+      - --context
+      - "{{ oc_context }}"
+      - -n
+      - openshift-gitops-operator
+      - get
+      - deploy
+      - openshift-gitops-operator-controller-manager
+      - -o
+      - jsonpath={.status.availableReplicas}
   register: deploy_status
-  until: >
-    deploy_status.resources | length > 0 and
-    deploy_status.resources[0].status.availableReplicas is defined and
-    deploy_status.resources[0].status.availableReplicas > 0
+  changed_when: false
+  failed_when: false
+  until: (deploy_status.stdout | default('0', true) | int) > 0
   retries: 30
   delay: 10
 
@@ -81,18 +82,24 @@
               memory: 256Mi
 
 - name: Wait for ArgoCD server deployment
-  kubernetes.core.k8s_info:
-    api_version: apps/v1
-    kind: Deployment
-    name: openshift-gitops-server
-    namespace: "{{ gitops_namespace }}"
+  ansible.builtin.command:
+    argv:
+      - oc
+      - --context
+      - "{{ oc_context }}"
+      - -n
+      - "{{ gitops_namespace }}"
+      - get
+      - deploy
+      - openshift-gitops-server
+      - -o
+      - jsonpath={.status.readyReplicas}
   register: deployment_status
+  changed_when: false
+  failed_when: false
   retries: 40
   delay: 15
-  until: >
-    deployment_status.resources | length > 0 and
-    deployment_status.resources[0].status.readyReplicas is defined and
-    deployment_status.resources[0].status.readyReplicas > 0
+  until: (deployment_status.stdout | default('0', true) | int) > 0
 
 # OpenShift GitOps CRD drops unknown fields (spec.server.route.host). Create the
 # short hostname Route used by RHDH / dashboard (argocd.apps.<cluster>).

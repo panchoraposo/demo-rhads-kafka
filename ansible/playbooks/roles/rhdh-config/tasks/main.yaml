@@ -158,14 +158,20 @@
     namespace: "{{ rhdh_namespace }}"
 
 - name: Wait until the Backstage CRD is served
-  kubernetes.core.k8s_info:
-    api_version: apiextensions.k8s.io/v1
-    kind: CustomResourceDefinition
-    name: backstages.rhdh.redhat.com
+  ansible.builtin.command:
+    argv:
+      - oc
+      - --context
+      - "{{ oc_context }}"
+      - get
+      - crd
+      - backstages.rhdh.redhat.com
+      - -o
+      - 'jsonpath={range .spec.versions[*]}{.served}{"\n"}{end}'
   register: bs_crd
-  until: >
-    bs_crd.resources | default([]) | length > 0 and
-    (bs_crd.resources[0].spec.versions | selectattr('served') | list | length > 0)
+  changed_when: false
+  failed_when: false
+  until: (bs_crd.stdout | default('')) is search('true')
   retries: 40
   delay: 10
 
@@ -221,11 +227,20 @@
   changed_when: false
 
 - name: Wait for Developer Hub route
-  kubernetes.core.k8s_info:
-    api_version: route.openshift.io/v1
-    kind: Route
-    namespace: "{{ rhdh_namespace }}"
+  ansible.builtin.command:
+    argv:
+      - oc
+      - --context
+      - "{{ oc_context }}"
+      - -n
+      - "{{ rhdh_namespace }}"
+      - get
+      - route
+      - -o
+      - name
   register: rhdh_routes
-  until: rhdh_routes.resources | default([]) | length > 0
+  changed_when: false
+  failed_when: false
+  until: (rhdh_routes.stdout | default('') | trim | length) > 0
   retries: 40
   delay: 15

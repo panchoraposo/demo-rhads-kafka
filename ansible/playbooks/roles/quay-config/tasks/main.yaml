@@ -1,14 +1,21 @@
 ---
 - name: Wait for ODF Multicloud Object Gateway (NooBaa)
-  kubernetes.core.k8s_info:
-    api_version: noobaa.io/v1alpha1
-    kind: NooBaa
-    name: noobaa
-    namespace: openshift-storage
+  ansible.builtin.command:
+    argv:
+      - oc
+      - --context
+      - "{{ oc_context }}"
+      - -n
+      - openshift-storage
+      - get
+      - noobaa
+      - noobaa
+      - -o
+      - jsonpath={.status.phase}
   register: noobaa
-  until: >
-    noobaa.resources | default([]) | length > 0 and
-    (noobaa.resources[0].status.phase | default('') | lower) in ['ready', 'connected']
+  changed_when: false
+  failed_when: false
+  until: (noobaa.stdout | default('') | lower) in ['ready', 'connected']
   retries: 80
   delay: 20
 
@@ -23,13 +30,22 @@
     definition: "{{ lookup('template', 'quayregistry.yaml.j2') | from_yaml }}"
 
 - name: Wait for Quay application route
-  kubernetes.core.k8s_info:
-    api_version: route.openshift.io/v1
-    kind: Route
-    name: quay-quay
-    namespace: "{{ quay_namespace }}"
+  ansible.builtin.command:
+    argv:
+      - oc
+      - --context
+      - "{{ oc_context }}"
+      - -n
+      - "{{ quay_namespace }}"
+      - get
+      - route
+      - quay-quay
+      - -o
+      - jsonpath={.spec.host}
   register: quay_app_route
-  until: quay_app_route.resources | default([]) | length > 0
+  changed_when: false
+  failed_when: false
+  until: (quay_app_route.stdout | default('') | length) > 0
   retries: 40
   delay: 15
 
@@ -45,17 +61,22 @@
     quay_host: "{{ quay_host | regex_replace('^https?://', '') }}"
 
 - name: Wait for QuayRegistry Available
-  kubernetes.core.k8s_info:
-    api_version: quay.redhat.com/v1
-    kind: QuayRegistry
-    name: quay
-    namespace: "{{ quay_namespace }}"
+  ansible.builtin.command:
+    argv:
+      - oc
+      - --context
+      - "{{ oc_context }}"
+      - -n
+      - "{{ quay_namespace }}"
+      - get
+      - quayregistry
+      - quay
+      - -o
+      - 'jsonpath={range .status.conditions[?(@.type=="Available")]}{.status}{end}'
   register: quay_status
-  until: >
-    quay_status.resources | length > 0 and
-    quay_status.resources[0].status.conditions is defined and
-    (quay_status.resources[0].status.conditions | selectattr('type', 'equalto', 'Available') | list | length > 0) and
-    (quay_status.resources[0].status.conditions | selectattr('type', 'equalto', 'Available') | list)[0].status == 'True'
+  changed_when: false
+  failed_when: false
+  until: (quay_status.stdout | default('')) == 'True'
   retries: 80
   delay: 20
 

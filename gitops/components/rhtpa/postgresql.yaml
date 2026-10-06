@@ -8,7 +8,7 @@ spec:
     - ReadWriteOnce
   resources:
     requests:
-      storage: 20Gi
+      storage: 40Gi
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -67,16 +67,21 @@ spec:
                 secretKeyRef:
                   name: postgresql-admin-credentials
                   key: db.password
+            # Server and importer each open a 75-connection pool, and the
+            # importer hooks need another. The image default of 100 stalls
+            # those hooks before the CVE feeds can be enabled.
+            - name: POSTGRESQL_MAX_CONNECTIONS
+              value: "300"
           volumeMounts:
             - name: data
               mountPath: /var/lib/pgsql/data
           resources:
             requests:
               cpu: 500m
-              memory: 1Gi
+              memory: 2Gi
             limits:
               cpu: "2"
-              memory: 4Gi
+              memory: 6Gi
       volumes:
         - name: data
           persistentVolumeClaim:

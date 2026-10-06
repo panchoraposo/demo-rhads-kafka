@@ -45,10 +45,32 @@ spec:
       enabled: true
     migrateDatabase:
       enabled: true
-    # Default CVE / GitHub OSV / Red Hat CSAF importers stay disabled: a full
-    # clone does not fit this sandbox. tpa-config seeds matching OSV GHSAs.
+    # Dependency Analytics queries TPA, so these importers are the CVE
+    # databases and Red Hat advisories the IDE report is built from.
+    # TPA 3.1 has no CISA KEV importer; exploitability comes from the CSAF feed.
     createImporters:
       enabled: true
+      importers:
+        cve:
+          cve:
+            description: CVE Project Database (cve.org)
+            period: 1d
+            source: https://github.com/CVEProject/cvelistV5
+            disabled: false
+        osv-github:
+          osv:
+            description: GitHub Advisory Database
+            period: 1d
+            source: https://github.com/github/advisory-database
+            path: advisories
+            disabled: false
+        redhat-csaf:
+          csaf:
+            description: Red Hat security advisories
+            period: 1d
+            source: redhat.com
+            disabled: false
+            fetchRetries: 50
     server:
       enabled: true
       replicas: 1
@@ -62,7 +84,7 @@ spec:
       concurrency: 1
       resources:
         requests:
-          cpu: 250m
-          memory: 1Gi
+          cpu: 500m
+          memory: 2Gi
       workingDirectory:
-        size: 8Gi
+        size: 40Gi

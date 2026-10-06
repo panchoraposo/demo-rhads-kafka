@@ -1,0 +1,23 @@
+---
+# admin-cli tokens on the workshop SSO last 60s. Later steps only need a new
+# token; repeating the realm wait and secret reads adds a round trip each time.
+- name: Get admin token
+  ansible.builtin.uri:
+    url: "https://{{ keycloak_hostname }}/realms/master/protocol/openid-connect/token"
+    method: POST
+    body:
+      username: "{{ keycloak_admin_user }}"
+      password: "{{ keycloak_admin_password }}"
+      client_id: admin-cli
+      grant_type: password
+    body_format: form-urlencoded
+    return_content: true
+    validate_certs: false
+  register: kc_token_response
+  retries: 5
+  delay: 5
+  until: kc_token_response.status == 200
+
+- name: Save token
+  ansible.builtin.set_fact:
+    kc_token: "{{ kc_token_response.json.access_token }}"

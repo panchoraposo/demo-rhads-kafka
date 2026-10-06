@@ -1,4 +1,7 @@
 ---
+- name: Refresh Keycloak admin token
+  ansible.builtin.include_tasks: refresh-token.yaml
+
 - name: Create users
   ansible.builtin.uri:
     url: "https://{{ keycloak_hostname }}/admin/realms/{{ keycloak_realm }}/users"

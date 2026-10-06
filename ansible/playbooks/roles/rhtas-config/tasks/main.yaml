@@ -35,14 +35,23 @@
   failed_when: false
 
 - name: Wait for cosign secret
-  kubernetes.core.k8s_info:
-    kind: Secret
-    name: cosign-signing-key
-    namespace: rhads-ci
+  ansible.builtin.command:
+    argv:
+      - oc
+      - --context
+      - "{{ oc_context }}"
+      - -n
+      - rhads-ci
+      - get
+      - secret
+      - cosign-signing-key
+      - -o
+      - name
   register: cosign_secret
+  changed_when: false
   retries: 20
   delay: 10
-  until: cosign_secret.resources | length > 0
+  until: cosign_secret.rc == 0
   failed_when: false
 
 - name: Record RHTAS route hosts

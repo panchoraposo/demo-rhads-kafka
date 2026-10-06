@@ -68,14 +68,21 @@
   failed_when: false
 
 - name: Wait for RHDH operator Deployment in openshift-operators
-  kubernetes.core.k8s_info:
-    api_version: apps/v1
-    kind: Deployment
-    name: rhdh-operator
-    namespace: openshift-operators
+  ansible.builtin.command:
+    argv:
+      - oc
+      - --context
+      - "{{ oc_context }}"
+      - -n
+      - openshift-operators
+      - get
+      - deploy
+      - rhdh-operator
+      - -o
+      - jsonpath={.status.availableReplicas}
   register: rhdh_operator_deploy
-  until: >
-    rhdh_operator_deploy.resources | default([]) | length > 0 and
-    (rhdh_operator_deploy.resources[0].status.availableReplicas | default(0) | int) >= 1
+  changed_when: false
+  failed_when: false
+  until: (rhdh_operator_deploy.stdout | default('0', true) | int) >= 1
   retries: 40
   delay: 10

@@ -1,7 +1,7 @@
 ---
-# TPA 3.1 creates CVE / OSV / CSAF importers disabled. Cloning those feeds on a
-# sandbox fills the importer PVC and still leaves SBOMs at 0 CVEs for hours.
-# Seed a small OSV set that matches the n-1 libraries in the software templates.
+# The CVE Project, GitHub Advisory, and Red Hat CSAF importers are enabled on
+# the TPA CR. This seed still loads the demo-library GHSAs so RHDA can match
+# them before those clones finish.
 - name: Request TPA OIDC token
   ansible.builtin.uri:
     url: "https://{{ keycloak_hostname }}/realms/{{ keycloak_trustify_realm }}/protocol/openid-connect/token"
