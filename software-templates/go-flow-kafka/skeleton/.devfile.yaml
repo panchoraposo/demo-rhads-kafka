@@ -39,6 +39,10 @@ components:
           value: nexus.nexus.svc
         - name: GONOSUMDB
           value: "*"
+        # vendor/ makes `go list -m all` fail. RHDA runs that command to
+        # build the stack report. Image builds still pass -mod=vendor.
+        - name: GOFLAGS
+          value: "-mod=mod"
         - name: KAFKA_BOOTSTRAP_SERVERS
           value: rhads-kafka-kafka-bootstrap.kafka.svc:9092
         - name: GITSIGN_FULCIO_URL

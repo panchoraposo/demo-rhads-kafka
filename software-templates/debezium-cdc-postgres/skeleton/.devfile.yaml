@@ -36,6 +36,10 @@ components:
           value: nexus.nexus.svc
         - name: GONOSUMDB
           value: "*"
+        # vendor/ makes `go list -m all` fail. RHDA runs that command to
+        # build the stack report. Image builds still pass -mod=vendor.
+        - name: GOFLAGS
+          value: "-mod=mod"
         - name: GITSIGN_FULCIO_URL
           value: https://fulcio-server-trusted-artifact-signer.${{values.cluster_subdomain}}
         - name: GITSIGN_REKOR_URL
