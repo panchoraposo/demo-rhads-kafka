@@ -1,6 +1,6 @@
-# After a large Syft SBOM ingest, Postgres stats go stale and
-# GET /api/v3/sbom/{id} can take >30s. The OpenShift route then
-# times out and the TPA UI shows a generic Error page.
+# After a large Syft SBOM ingest, stats on the small SBOM tables go stale
+# and GET /api/v3/sbom/{id} can take >30s. Refresh those tables only.
+# A full-database ANALYZE re-reads the CVE tables and stalls the UI.
 apiVersion: batch/v1
 kind: CronJob
 metadata:
@@ -9,8 +9,10 @@ metadata:
   labels:
     app.kubernetes.io/part-of: rhads-demo
 spec:
-  # Large Syft SBOMs stale the planner between 10-minute ticks and the
-  # OpenShift route cuts GET /api/v3/sbom/{id} at 30s (generic UI Error).
+  # A fresh Syft SBOM stales the small SBOM tables. Refresh only those.
+  # ANALYZE of the whole database re-reads the CVE tables (purl_status is
+  # several GB) and was running almost continuously, which made the SBOM
+  # list wait on disk.
   schedule: "*/2 * * * *"
   concurrencyPolicy: Forbid
   successfulJobsHistoryLimit: 1
@@ -54,7 +56,7 @@ spec:
               command:
                 - /bin/bash
                 - -c
-                - psql -v ON_ERROR_STOP=1 -c ANALYZE
+                - psql -v ON_ERROR_STOP=1 -c "ANALYZE sbom, sbom_package, sbom_node, sbom_node_purl_ref, sbom_node_cpe_ref, sbom_describing_cpe, base_purl, versioned_purl, qualified_purl"
               resources:
                 requests:
                   cpu: 50m

@@ -11,7 +11,14 @@ data:
   # "cannot start subtransactions during a parallel operation". The UI
   # shows that 500 as "Unable to connect".
   parallel.conf: |
+    # Version comparisons open a subtransaction. A parallel plan then fails
+    # and the UI shows "Unable to connect".
     max_parallel_workers_per_gather = 0
+    # gp3 is SSD-backed. The default random_page_cost (4) makes the SBOM
+    # list hash all of purl_status (tens of millions of rows, tens of
+    # seconds) instead of the base_purl_id index.
+    random_page_cost = 1.1
+    effective_io_concurrency = 200
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
