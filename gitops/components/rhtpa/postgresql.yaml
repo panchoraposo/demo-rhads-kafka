@@ -1,4 +1,19 @@
 apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: tpa-postgresql-cfg
+  namespace: trusted-profile-analyzer
+data:
+  # Included on every start by the RHEL PostgreSQL image
+  # ($APP_DATA/src/postgresql-cfg/*.conf). TPA opens a subtransaction while
+  # it joins advisories. Once the CVE tables are large, the planner
+  # parallelizes that scan and PostgreSQL rejects it with
+  # "cannot start subtransactions during a parallel operation". The UI
+  # shows that 500 as "Unable to connect".
+  parallel.conf: |
+    max_parallel_workers_per_gather = 0
+---
+apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: tpa-postgresql
@@ -75,6 +90,9 @@ spec:
           volumeMounts:
             - name: data
               mountPath: /var/lib/pgsql/data
+            - name: postgresql-cfg
+              mountPath: /opt/app-root/src/postgresql-cfg
+              readOnly: true
           resources:
             requests:
               cpu: 500m
@@ -86,6 +104,9 @@ spec:
         - name: data
           persistentVolumeClaim:
             claimName: tpa-postgresql
+        - name: postgresql-cfg
+          configMap:
+            name: tpa-postgresql-cfg
 ---
 apiVersion: v1
 kind: Service
