@@ -6,7 +6,7 @@
 #   - supplementary group 0 (root) — files must be group-owned by 0 with g=u
 #   - no root, no CAP_*, no writable paths required beyond /tmp
 #
-ARG GO_BUILDER=docker.io/library/golang:1.21.0-bookworm
+ARG GO_BUILDER=docker.io/library/golang:1.26.8-bookworm
 ARG GO_RUNTIME=docker.io/library/debian:12.0-slim
 
 FROM ${GO_BUILDER} AS builder
