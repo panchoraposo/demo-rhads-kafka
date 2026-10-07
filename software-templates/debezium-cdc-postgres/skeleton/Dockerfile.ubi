@@ -3,12 +3,13 @@
 #   cp Dockerfile.ubi Dockerfile
 #
 # Catalog: https://images.redhat.com/?name=go&version=1
-#   builder  registry.access.redhat.com/hi/go:1.25-builder
+#   builder  registry.access.redhat.com/hi/go:1.26-builder
 #   runtime  registry.access.redhat.com/hi/core-runtime:latest
+# Match the community Dockerfile builder (golang:1.26.8-bookworm) so a
+# module bump that raises the go line to 1.25/1.26 still compiles here.
 # core-runtime has no shell, so group-0 permissions are set in the builder.
-# go.mod stays 1.21; this image only compiles the vendored tree.
 #
-ARG GO_BUILDER=registry.access.redhat.com/hi/go:1.25-builder
+ARG GO_BUILDER=registry.access.redhat.com/hi/go:1.26-builder
 ARG GO_RUNTIME=registry.access.redhat.com/hi/core-runtime:latest
 
 FROM ${GO_BUILDER} AS builder

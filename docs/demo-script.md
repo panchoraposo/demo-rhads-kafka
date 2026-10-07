@@ -78,7 +78,7 @@ Create → **Agentic Trip Planner — Go/Kafka** (`trip-go`).
 
 - RHDA on `go.mod` (jwt-go, gorilla/websocket, yaml.v2, x/net — community module CVEs).
 - First image uses **community** bases (`golang:1.26.8-bookworm` + `debian:12.0-slim`) → ACS shows base-OS CVEs. The builder is 1.26 so a fixed module such as `golang.org/x/net v0.55.0` still compiles. The runtime base stays Debian slim.
-- Switch to [Red Hat Hardened Images — Go 1](https://images.redhat.com/?name=go&version=1): `cp Dockerfile.ubi Dockerfile`, commit, push → rebuild. That file uses `registry.access.redhat.com/hi/go:1.25-builder` and `registry.access.redhat.com/hi/core-runtime:latest` (no shell in the runtime). ACS/TPA show the base-OS difference. Keep the `go` line in `go.mod` at 1.25 or lower so the 1.25 hardened builder can compile it.
+- Switch to [Red Hat Hardened Images — Go 1](https://images.redhat.com/?name=go&version=1): `cp Dockerfile.ubi Dockerfile`, commit, push → rebuild. That file uses `registry.access.redhat.com/hi/go:1.26-builder` (Go 1.26.8, same as the community builder) and `registry.access.redhat.com/hi/core-runtime:latest` (no shell in the runtime). ACS/TPA show the base-OS difference.
 - Same Trip UI / Kafka topics / Approve path (hand-rolled workflow engine, same CloudEvents types).
 
 ## Cheat sheet

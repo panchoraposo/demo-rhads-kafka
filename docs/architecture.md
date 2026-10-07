@@ -73,7 +73,7 @@ flowchart LR
 
 ## CI / supply chain
 
-Unchanged from demo-rhads: Tekton build/promote, Syft SBOM to TPA, cosign + Rekor, ACS, Conforma STRICT on tag/release, Tekton Chains. Dependencies resolve through **Nexus** (`maven-public`, `npm-group`, `go-group`). Go apps use `build.language: go`: Tekton `rhads-build-source` runs `go mod tidy` + `go mod vendor` via Nexus, then the image build compiles with `-mod=vendor` (offline). The default Go image is **community** (`golang` + `debian`); `Dockerfile.ubi` swaps to Red Hat Hardened Images (`hi/go:1.25-builder` + `hi/core-runtime`) for an ACS CVE contrast.
+Unchanged from demo-rhads: Tekton build/promote, Syft SBOM to TPA, cosign + Rekor, ACS, Conforma STRICT on tag/release, Tekton Chains. Dependencies resolve through **Nexus** (`maven-public`, `npm-group`, `go-group`). Go apps use `build.language: go`: Tekton `rhads-build-source` runs `go mod tidy` + `go mod vendor` via Nexus, then the image build compiles with `-mod=vendor` (offline). The default Go image is **community** (`golang:1.26.8-bookworm` + `debian`); `Dockerfile.ubi` swaps to Red Hat Hardened Images (`hi/go:1.26-builder` + `hi/core-runtime`) for an ACS CVE contrast.
 
 ## Secrets and schemas in Developer Hub
 
