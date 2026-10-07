@@ -1,6 +1,7 @@
 # RHDA backend (trustify-dependency-analytics) in front of this cluster's TPA.
 # The VS Code extension POSTs SBOMs to /api/v5/analysis; this service queries
-# TPA /api/v2/vulnerability/analyze. See:
+# TPA /api/v3/vulnerability/analyze. v2.0.0 crashes the report when a CVSS 4.0
+# score is present (type "4.0"). See:
 # https://developers.redhat.com/blog/2026/07/18/red-hat-dependency-analytics-works-your-private-trusted-profile-analyzer-instance
 ---
 apiVersion: v1
@@ -236,7 +237,7 @@ spec:
               mountPath: /tmp/truststore
       containers:
         - name: rhda-backend
-          image: quay.io/tssc_demos/trustify-dependency-analytics:v2.0.0
+          image: quay.io/tssc_demos/trustify-dependency-analytics:v3.1.0
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
