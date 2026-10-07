@@ -56,6 +56,13 @@ data:
             - sbom.found
             - sbom_cyclonedx.found
             - base_image_registries.base_image_info_found
+            # rhtap-ec-policy data still ships deprecated allowed_registry_prefixes
+            # without signing_identities — warning only; real base-image check is
+            # already excluded above (OpenShift Builds have no Konflux base SBOM).
+            - base_image_registries.allowed_registries_provided
+            # Konflux required-tasks list is absent; this demo uses custom tasks
+            # (openshift-build, sign-image, acs-scan, …), not build-container.
+            - tasks.pipeline_required_tasks_list_provided
         ruleData:
           allowed_builder_ids:
             - https://tekton.dev/chains/v2

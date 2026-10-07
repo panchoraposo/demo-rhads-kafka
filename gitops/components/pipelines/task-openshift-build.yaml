@@ -5,6 +5,11 @@ metadata:
   namespace: rhads-ci
   labels:
     app.kubernetes.io/part-of: rhads-demo
+  annotations:
+    task.output.location: results
+    task.results.format: application/text
+    task.results.type: external-link
+    task.results.key: LINK_TO_IMAGE
 spec:
   params:
     - name: IMAGE
@@ -15,9 +20,11 @@ spec:
       type: string
   results:
     - name: IMAGE_URL
-      description: Image reference without digest (Tekton Chains)
+      description: Image reference without digest (Tekton Chains — must stay OCI, not HTTPS)
     - name: IMAGE_DIGEST
       description: Image digest (Tekton Chains)
+    - name: LINK_TO_IMAGE
+      description: HTTPS Quay UI URL (clickable in RHDH Tekton Output)
   workspaces:
     - name: source
     - name: dockerconfig
@@ -98,7 +105,17 @@ spec:
         fi
         echo -n "${IMAGE}" > "$(results.IMAGE_URL.path)"
         echo -n "${DIGEST}" > "$(results.IMAGE_DIGEST.path)"
+        # RHDH only linkifies https:// values in Output → Others. Keep IMAGE_URL as
+        # OCI for Chains; expose a separate Quay UI link (host/org/name[:tag|@digest]).
+        REF="${IMAGE#*://}"
+        HOST="${REF%%/*}"
+        PATHPART="${REF#*/}"
+        PATHPART="${PATHPART%%@*}"
+        PATHPART="${PATHPART%%:*}"
+        LINK="https://${HOST}/repository/${PATHPART}"
+        echo -n "${LINK}" > "$(results.LINK_TO_IMAGE.path)"
         echo
         echo "PASS: OpenShift Build completed and pushed ${IMAGE}"
         echo "Digest: ${DIGEST}"
+        echo "Quay UI: ${LINK}"
         echo "Tekton Chains will sign this IMAGE_URL / IMAGE_DIGEST pair."

@@ -36,6 +36,8 @@ spec:
       value: $(tasks.openshift-build.results.IMAGE_URL)
     - name: IMAGE_DIGEST
       value: $(tasks.openshift-build.results.IMAGE_DIGEST)
+    - name: LINK_TO_IMAGE
+      value: $(tasks.openshift-build.results.LINK_TO_IMAGE)
     - name: SCAN_OUTPUT
       value: $(tasks.acs-scan.results.SCAN_OUTPUT)
     - name: LINK_TO_SBOM

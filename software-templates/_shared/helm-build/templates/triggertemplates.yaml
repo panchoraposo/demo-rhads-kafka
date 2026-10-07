@@ -29,6 +29,13 @@ spec:
             affinity:
               {{- include "rhads.workerNodeAffinity" . | nindent 14 }}
         taskRunSpecs:
+          - pipelineTaskName: openshift-build
+            metadata:
+              annotations:
+                task.output.location: results
+                task.results.format: application/text
+                task.results.type: external-link
+                task.results.key: LINK_TO_IMAGE
           - pipelineTaskName: generate-sbom
             metadata:
               annotations:
