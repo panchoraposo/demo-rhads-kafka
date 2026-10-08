@@ -61,6 +61,12 @@ spec:
                 - |
                   set -euo pipefail
                   psql -v ON_ERROR_STOP=1 -c "ANALYZE sbom, sbom_package, sbom_node, sbom_node_purl_ref, sbom_node_cpe_ref, sbom_describing_cpe, base_purl, versioned_purl, qualified_purl"
+                  # Package detail (GET /api/v3/purl/{uuid}) loads scores with
+                  # WHERE vulnerability_id = $cve for every status row. Without
+                  # this index PostgreSQL seq-scans advisory_vulnerability_score
+                  # (~110ms × hundreds of CVEs → 30–60s for openssl).
+                  # CONCURRENTLY cannot run inside a transaction block.
+                  psql -v ON_ERROR_STOP=1 -c "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_adv_vuln_score_vulnerability_id ON advisory_vulnerability_score (vulnerability_id)"
                   # Keep the SBOM advisory join and package search hot. Cold
                   # pages on version_range / purl indexes make the UI wait
                   # tens of seconds after idle periods.
@@ -75,7 +81,9 @@ spec:
                     ('basepurlnameginidx'),
                     ('basepurlnamespaceginidx'),
                     ('advisory_identifier_idx'),
-                    ('vulnerability_pkey')
+                    ('vulnerability_pkey'),
+                    ('idx_adv_vuln_score_vulnerability_id'),
+                    ('idx_adv_vuln_score_advisory_id')
                   ) AS t(c);
                   SQL
               resources:
