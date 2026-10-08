@@ -16,9 +16,14 @@ data:
     max_parallel_workers_per_gather = 0
     # gp3 is SSD-backed. The default random_page_cost (4) makes the SBOM
     # list hash all of purl_status (tens of millions of rows, tens of
-    # seconds) instead of the base_purl_id index.
-    random_page_cost = 1.1
+    # seconds) instead of the base_purl_id index. 0.8 also keeps the
+    # advisory join on the base_purl_id index after CVE tables grow.
+    random_page_cost = 0.8
     effective_io_concurrency = 200
+    # Keep version_range (~100MB) and hot purl_status index pages in RAM.
+    # Cold cache turns the SBOM advisory join from ~3s into ~30s.
+    shared_buffers = 3GB
+    effective_cache_size = 24GB
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
@@ -102,11 +107,11 @@ spec:
               readOnly: true
           resources:
             requests:
-              cpu: 500m
-              memory: 2Gi
+              cpu: "1"
+              memory: 4Gi
             limits:
-              cpu: "2"
-              memory: 6Gi
+              cpu: "4"
+              memory: 8Gi
       volumes:
         - name: data
           persistentVolumeClaim:

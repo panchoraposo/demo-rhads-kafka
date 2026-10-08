@@ -38,25 +38,46 @@ spec:
               env:
                 - name: PGHOST
                   value: tpa-postgresql
+                # Superuser: CREATE EXTENSION pg_prewarm on first run, then
+                # keep hot pages in shared_buffers for the UI.
                 - name: PGUSER
                   valueFrom:
                     secretKeyRef:
-                      name: postgresql-credentials
+                      name: postgresql-admin-credentials
                       key: db.user
                 - name: PGPASSWORD
                   valueFrom:
                     secretKeyRef:
-                      name: postgresql-credentials
+                      name: postgresql-admin-credentials
                       key: db.password
                 - name: PGDATABASE
                   valueFrom:
                     secretKeyRef:
-                      name: postgresql-credentials
+                      name: postgresql-admin-credentials
                       key: db.name
               command:
                 - /bin/bash
                 - -c
-                - psql -v ON_ERROR_STOP=1 -c "ANALYZE sbom, sbom_package, sbom_node, sbom_node_purl_ref, sbom_node_cpe_ref, sbom_describing_cpe, base_purl, versioned_purl, qualified_purl"
+                - |
+                  set -euo pipefail
+                  psql -v ON_ERROR_STOP=1 -c "ANALYZE sbom, sbom_package, sbom_node, sbom_node_purl_ref, sbom_node_cpe_ref, sbom_describing_cpe, base_purl, versioned_purl, qualified_purl"
+                  # Keep the SBOM advisory join and package search hot. Cold
+                  # pages on version_range / purl indexes make the UI wait
+                  # tens of seconds after idle periods.
+                  psql -v ON_ERROR_STOP=1 <<'SQL'
+                  CREATE EXTENSION IF NOT EXISTS pg_prewarm;
+                  SELECT pg_prewarm(c::regclass, 'buffer', 'main', NULL, NULL)
+                  FROM (VALUES
+                    ('version_range'),
+                    ('version_range_pkey'),
+                    ('purl_status_base_purl_id_idx'),
+                    ('base_purl'),
+                    ('basepurlnameginidx'),
+                    ('basepurlnamespaceginidx'),
+                    ('advisory_identifier_idx'),
+                    ('vulnerability_pkey')
+                  ) AS t(c);
+                  SQL
               resources:
                 requests:
                   cpu: 50m
