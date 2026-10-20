@@ -9,23 +9,59 @@
   changed_when: true
   when: rhads_manage_odf_storagecluster | default(true) | bool
 
-# Lean profile leaves the PV-pool agent at 400Mi. Large image layers OOM it,
-# NooBaa marks the bucket InvalidBucketState, and Quay push returns 500.
-# Run on every install: a retry sees ODF already present and would otherwise
-# skip this, leaving the agent at 400Mi.
-- name: Raise NooBaa PV-pool memory so image pushes do not OOM the backing-store agent
+# Lean PV-pool agents default to 400Mi and OOM on large Quay layers.
+# On AWS OpenTLC/sandboxes without root aws-creds, CCO never mints
+# noobaa-aws-cloud-creds-secret, so the operator never creates the default
+# BackingStore and a blind patch fails after ~5m. Ensure a sized PV-pool
+# exists (create when AWS minting fails), then raise memory on every install.
+- name: Ensure NooBaa default PV-pool backing store (sized for image pushes)
   ansible.builtin.shell: |
     set -euo pipefail
     CTX="{{ oc_context }}"
     NS="{{ odf_namespace }}"
-    for i in $(seq 1 30); do
-      if oc --context "$CTX" -n "$NS" get backingstore noobaa-default-backing-store >/dev/null 2>&1; then
+    BS=noobaa-default-backing-store
+    RESOURCES='{"requests":{"cpu":"500m","memory":"2Gi","storage":"50Gi"},"limits":{"cpu":"1","memory":"4Gi"}}'
+
+    echo "Waiting for NooBaa CR..."
+    for i in $(seq 1 60); do
+      if oc --context "$CTX" -n "$NS" get noobaa noobaa >/dev/null 2>&1; then
         break
       fi
       sleep 10
     done
-    oc --context "$CTX" -n "$NS" patch backingstore noobaa-default-backing-store --type=merge -p \
-      '{"spec":{"pvPool":{"resources":{"requests":{"cpu":"500m","memory":"2Gi","storage":"50Gi"},"limits":{"cpu":"1","memory":"4Gi"}}}}}'
+    oc --context "$CTX" -n "$NS" get noobaa noobaa >/dev/null
+
+    echo "Waiting for default BackingStore (or AWS credentials failure)..."
+    for i in $(seq 1 60); do
+      if oc --context "$CTX" -n "$NS" get backingstore "$BS" >/dev/null 2>&1; then
+        break
+      fi
+      # CCO cannot mint when Secret aws-creds is missing (common on sandboxes).
+      fail_msg=$(oc --context "$CTX" -n "$NS" get credentialsrequest noobaa-aws-cloud-creds \
+        -o jsonpath='{% raw %}{.status.conditions[?(@.type=="CredentialsProvisionFailure")].status}{% endraw %}' 2>/dev/null || true)
+      if [ "$fail_msg" = "True" ]; then
+        echo "CredentialsRequest provision failed; will create a PV-pool BackingStore."
+        break
+      fi
+      sleep 10
+    done
+
+    if ! oc --context "$CTX" -n "$NS" get backingstore "$BS" >/dev/null 2>&1; then
+      echo "Creating PV-pool BackingStore $BS"
+      # JSON avoids Ansible block-scalar indent breaking the YAML document root.
+      oc --context "$CTX" apply -f - <<EOF
+    {"apiVersion":"noobaa.io/v1alpha1","kind":"BackingStore","metadata":{"name":"${BS}","namespace":"${NS}","labels":{"app":"noobaa"},"finalizers":["noobaa.io/finalizer"]},"spec":{"type":"pv-pool","pvPool":{"numVolumes":3,"resources":${RESOURCES}}}}
+    EOF
+    fi
+
+    type=$(oc --context "$CTX" -n "$NS" get backingstore "$BS" -o jsonpath='{% raw %}{.spec.type}{% endraw %}' 2>/dev/null || true)
+    if [ "$type" = "pv-pool" ]; then
+      oc --context "$CTX" -n "$NS" patch backingstore "$BS" --type=merge -p \
+        "{\"spec\":{\"pvPool\":{\"resources\":${RESOURCES}}}}"
+      echo "PV-pool resources raised for $BS"
+    else
+      echo "BackingStore $BS type=${type:-unknown}; skipping PV-pool memory patch"
+    fi
   args:
     executable: /bin/bash
   changed_when: true

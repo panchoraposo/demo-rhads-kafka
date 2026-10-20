@@ -13,6 +13,16 @@ backend:
     credentials: true
   csp:
     connect-src: ["'self'", "http:", "https:", "data:"]
+    # Lightspeed FAB / chat loads avatars from GitLab and Gravatar.
+    img-src:
+      - "'self'"
+      - "data:"
+      - https://secure.gravatar.com
+      - https://avatars.githubusercontent.com
+      - https://${GITLAB_HOST}
+    script-src:
+      - "'self'"
+      - "'unsafe-eval'"
   auth:
     keys:
       - secret: ${BACKEND_SECRET}
@@ -221,3 +231,14 @@ enabled:
   quay: true
   gitlab: true
   vault: true
+
+# Developer Lightspeed (sidecar + plugins come from the RHDH 1.10 flavour).
+# LLM credentials live in Secret lightspeed-auth-secrets (MaaS via vLLM provider).
+lightspeed:
+  prompts:
+    - title: Explore the Software Catalog
+      message: How do I find my service in the Software Catalog and open its CI, CD, and Topology tabs?
+    - title: Scaffold a trip planner
+      message: Walk me through creating an Agentic Trip Planner from the software templates and what happens in the first PipelineRun.
+    - title: RHADS supply chain
+      message: Explain how SBOM, cosign, ACS, and Trusted Profile Analyzer fit together in this demo.

@@ -140,6 +140,14 @@ quay_robot_name: pipeline
 # --- Object storage (ODF MCG / NooBaa) ---
 odf_namespace: openshift-storage
 
+# --- Developer Lightspeed (RHDH 1.10 flavour + MaaS OpenAI-compatible API) ---
+# Pass -e maas_api_key=... (or export MAAS_API_KEY) so the install seeds
+# Secret lightspeed-auth-secrets for the lightspeed-core sidecar.
+maas_base_url: "https://maas-rhdp.apps.maas.redhatworkshops.io/v1"
+maas_model: "qwen3-14b"
+maas_api_key: "{{ lookup('env', 'MAAS_API_KEY') | default('', true) }}"
+
+
 # --- RHTAS ---
 rhtas_namespace: trusted-artifact-signer
 rhtas_name: rhads-securesign

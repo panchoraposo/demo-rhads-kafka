@@ -149,6 +149,34 @@
         VAULT_TOKEN: "{{ vault_rhdh_token | default('') }}"
         APICURIO_URL: "https://{{ apicurio_host | default('apicurio.' + openshift_base_domain) }}"
 
+# RHDH 1.10 enables the Lightspeed flavour by default (lightspeed-core sidecar).
+# Wire MaaS as an OpenAI-compatible vLLM provider so the chat FAB works.
+- name: Create Lightspeed auth secret for MaaS
+  when: (maas_api_key | default('') | length) > 0
+  no_log: true
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: lightspeed-auth-secrets
+        namespace: "{{ rhdh_namespace }}"
+      type: Opaque
+      stringData:
+        ENABLE_VLLM: "true"
+        VLLM_URL: "{{ maas_base_url | regex_replace('/$', '') }}"
+        VLLM_API_KEY: "{{ maas_api_key }}"
+        VLLM_TLS_VERIFY: "true"
+
+- name: Warn when Lightspeed MaaS key is missing
+  when: (maas_api_key | default('') | length) == 0
+  ansible.builtin.debug:
+    msg: >-
+      Lightspeed sidecar is present but Secret lightspeed-auth-secrets was not
+      created (set MAAS_API_KEY or -e maas_api_key=...). Chat stays unconfigured
+      until the secret exists and is referenced by the Backstage CR.
+
 - name: Remove leftover RHDH operator from the backstage namespace
   kubernetes.core.k8s:
     state: absent

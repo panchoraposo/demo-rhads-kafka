@@ -10,6 +10,11 @@ spec:
     extraEnvs:
       secrets:
         - name: backstage-env
+        # Lightspeed Core sidecar (RHDH 1.10 flavour). OpenAI-compatible MaaS
+        # via the vLLM provider: ENABLE_VLLM / VLLM_URL / VLLM_API_KEY.
+        - name: lightspeed-auth-secrets
+          containers:
+            - lightspeed-core
     extraFiles:
       mountPath: /opt/app-root/src
       configMaps:
