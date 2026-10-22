@@ -57,7 +57,8 @@
     dash_acs_url: "https://{{ acs_host | default(acs_route_res.resources[0].spec.host if (acs_route_res.resources | default([]) | length > 0) else ('acs.' + openshift_base_domain)) }}"
     dash_tpa_url: "https://server{{ tpa_app_domain }}/"
     dash_devspaces_url: "https://devspaces.{{ openshift_base_domain }}/"
-    dash_rekor_url: "https://rekor-search-ui-trusted-artifact-signer.{{ openshift_base_domain }}/"
+    # RHTAS console hosts Rekor Search at /rekor-search (old rekor-search-ui route is gone).
+    dash_rekor_url: "https://console-ui-trusted-artifact-signer.{{ openshift_base_domain }}/rekor-search"
     dash_fulcio_url: "https://fulcio-server-trusted-artifact-signer.{{ openshift_base_domain }}/"
     dash_nexus_url: "https://{{ nexus_host | default('nexus.' + openshift_base_domain) }}/"
     dash_vault_url: "https://{{ vault_host | default(vault_route_res.resources[0].spec.host if (vault_route_res.resources | default([]) | length > 0) else ('vault.' + openshift_base_domain)) }}/"

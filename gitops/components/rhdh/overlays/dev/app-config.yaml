@@ -37,6 +37,9 @@ backend:
       - software-catalog-mcp-extras
       - techdocs-mcp-extras
       - scaffolder-mcp-extras
+      # Core action sources required alongside the *-mcp-extras plugins.
+      - catalog
+      - scaffolder
       # Community Argo CD scaffolder/MCP actions (backstage-community-argocd:create-resources).
       - backstage-community-argocd
 
@@ -234,10 +237,17 @@ enabled:
 
 # Developer Lightspeed (sidecar + plugins come from the RHDH 1.10 flavour).
 # LLM credentials live in Secret lightspeed-auth-secrets (MaaS via vLLM provider).
+# MCP: lightspeed-stack.yaml uses Authorization: "client" as a placeholder; the
+# Hub plugin substitutes Bearer ${MCP_TOKEN} when mcpServers.name matches.
 lightspeed:
+  mcpServers:
+    - name: mcp-integration-tools
+      token: ${MCP_TOKEN}
   prompts:
     - title: Explore the Software Catalog
       message: How do I find my service in the Software Catalog and open its CI, CD, and Topology tabs?
+    - title: Registered APIs
+      message: What APIs are registered in the Software Catalog? Summarize trip-plan-events and where to open it in Apicurio.
     - title: Scaffold a trip planner
       message: Walk me through creating an Agentic Trip Planner from the software templates and what happens in the first PipelineRun.
     - title: RHADS supply chain

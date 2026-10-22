@@ -39,7 +39,32 @@ spec:
       spec:
         template:
           spec:
+            # Flavour mounts backstage-files-*-llama-stack-config from an
+            # operator ConfigMap that only registers embeddings. Retarget to
+            # llama-stack-maas-config (MaaS LLM + embeddings) so chat works.
+            volumes:
+              - name: backstage-files-developer-hub-llama-stack-config
+                configMap:
+                  name: llama-stack-maas-config
+              - name: backstage-files-developer-hub-lightspeed-stack-config
+                configMap:
+                  name: lightspeed-stack-maas-config
+              - name: backstage-files-developer-hub-rhdh-profile
+                configMap:
+                  name: rhdh-profile-maas-config
+              # Full "Bearer <MCP_TOKEN>" for LCS authorization_headers file path.
+              - name: lightspeed-mcp-token
+                secret:
+                  secretName: lightspeed-auth-secrets
+                  items:
+                    - key: MCP_TOKEN_BEARER
+                      path: authorization
             containers:
+              - name: lightspeed-core
+                volumeMounts:
+                  - name: lightspeed-mcp-token
+                    mountPath: /etc/lightspeed-mcp
+                    readOnly: true
               - name: backstage-backend
                 lifecycle:
                   postStart:

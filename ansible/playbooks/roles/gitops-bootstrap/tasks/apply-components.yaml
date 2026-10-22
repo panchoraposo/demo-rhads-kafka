@@ -188,7 +188,7 @@
   ansible.builtin.command: >
     oc --context {{ oc_context }} -n {{ rhtas_namespace }} patch securesign {{ rhtas_name }}
     --type merge
-    --patch '{"spec":{"fulcio":{"config":{"OIDCIssuers":[{"ClientID":"trusted-artifact-signer","Issuer":"{{ keycloak_issuer_url }}","IssuerURL":"{{ keycloak_issuer_url }}","Type":"email"},{"ClientID":"sigstore","Issuer":"https://kubernetes.default.svc","IssuerURL":"https://kubernetes.default.svc","Type":"kubernetes"}]}}}}'
+    --patch '{"spec":{"fulcio":{"config":{"oidcIssuers":[{"clientID":"trusted-artifact-signer","issuer":"{{ keycloak_issuer_url }}","issuerURL":"{{ keycloak_issuer_url }}","type":"email"},{"clientID":"sigstore","issuer":"https://kubernetes.default.svc","issuerURL":"https://kubernetes.default.svc","type":"kubernetes"}]}}}}'
   register: patch_rhtas
   retries: 20
   delay: 15

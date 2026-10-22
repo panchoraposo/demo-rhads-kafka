@@ -81,7 +81,9 @@ spec:
     importer:
       enabled: true
       replicas: 1
-      concurrency: 1
+      # One slot per feed (GitHub Advisory, CVE Project, Red Hat CSAF) so they
+      # clone and ingest together instead of waiting on the previous walk.
+      concurrency: 3
       resources:
         requests:
           cpu: 500m

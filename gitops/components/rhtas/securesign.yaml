@@ -1,4 +1,5 @@
-# OIDC issuer URLs are patched by Ansible once the cluster apps domain is known.
+# OIDC issuer uses CLUSTER_SUBDOMAIN_PLACEHOLDER (substituted when publishing to
+# GitLab). PostSync job + Ansible also patch oidcIssuers as a safety net.
 apiVersion: rhtas.redhat.com/v1alpha1
 kind: Securesign
 metadata:
@@ -25,19 +26,20 @@ spec:
     externalAccess:
       enabled: true
     config:
-      OIDCIssuers:
-        # Developer / gitsign identity (Keycloak). Issuer URL is patched to the
-        # live SSO route by the PostSync job (and by Ansible at install).
-        - ClientID: trusted-artifact-signer
-          Issuer: https://sso.apps.example.com/realms/backstage
-          IssuerURL: https://sso.apps.example.com/realms/backstage
-          Type: email
+      # RHTAS v1 CRD field is oidcIssuers (camelCase). publish-platform-repo
+      # substitutes CLUSTER_SUBDOMAIN_PLACEHOLDER so Argo does not heal back to
+      # a dead issuer and break Dev Spaces gitsign OIDC.
+      oidcIssuers:
+        - clientID: trusted-artifact-signer
+          issuer: https://sso.CLUSTER_SUBDOMAIN_PLACEHOLDER/realms/backstage
+          issuerURL: https://sso.CLUSTER_SUBDOMAIN_PLACEHOLDER/realms/backstage
+          type: email
         # Tekton Chains keyless: projected SA token audience "sigstore"
         # (iss https://kubernetes.default.svc).
-        - ClientID: sigstore
-          Issuer: https://kubernetes.default.svc
-          IssuerURL: https://kubernetes.default.svc
-          Type: kubernetes
+        - clientID: sigstore
+          issuer: https://kubernetes.default.svc
+          issuerURL: https://kubernetes.default.svc
+          type: kubernetes
     certificate:
       organizationName: RHADS Demo
       organizationEmail: security@rhads.demo

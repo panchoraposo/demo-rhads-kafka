@@ -168,6 +168,12 @@
         VLLM_URL: "{{ maas_base_url | regex_replace('/$', '') }}"
         VLLM_API_KEY: "{{ maas_api_key }}"
         VLLM_TLS_VERIFY: "true"
+        MAAS_MODEL: "{{ maas_model | default('qwen3-14b') }}"
+        # Mounted into lightspeed-core at /etc/lightspeed-mcp/authorization.
+        # LCS reads authorization_headers as file paths and passes the value to
+        # llama-stack's authorization= param (raw token; stack adds "Bearer ").
+        MCP_TOKEN: "{{ mcp_token }}"
+        MCP_TOKEN_BEARER: "{{ mcp_token }}"
 
 - name: Warn when Lightspeed MaaS key is missing
   when: (maas_api_key | default('') | length) == 0

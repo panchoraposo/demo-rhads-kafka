@@ -68,14 +68,14 @@ spec:
               spec:
                 fulcio:
                   config:
-                    OIDCIssuers:
-                      - ClientID: trusted-artifact-signer
-                        Issuer: "${ISSUER}"
-                        IssuerURL: "${ISSUER}"
-                        Type: email
-                      - ClientID: sigstore
-                        Issuer: https://kubernetes.default.svc
-                        IssuerURL: https://kubernetes.default.svc
-                        Type: kubernetes
+                    oidcIssuers:
+                      - clientID: trusted-artifact-signer
+                        issuer: "${ISSUER}"
+                        issuerURL: "${ISSUER}"
+                        type: email
+                      - clientID: sigstore
+                        issuer: https://kubernetes.default.svc
+                        issuerURL: https://kubernetes.default.svc
+                        type: kubernetes
               EOF
               echo "PASS: Fulcio accepts Keycloak (gitsign) and Kubernetes SA (Chains keyless)"

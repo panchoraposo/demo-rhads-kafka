@@ -7,6 +7,9 @@ resources:
   - rbac-policy.yaml
   - catalog-static.yaml
   - oidc-watchdog.yaml
+  - llama-stack-maas-config.yaml
+  - lightspeed-stack-maas-config.yaml
+  - rhdh-profile-maas-config.yaml
 
 configMapGenerator:
   - name: developer-hub-config
