@@ -61,6 +61,10 @@ spec:
           osv:
             description: GitHub Advisory Database
             period: 1d
+            # Trustify's importer schema (referenced by the TPA chart) requires
+            # transport. Without it the operator rejects the whole release and
+            # never creates Service/server, so RHDA stays NotReady.
+            transport: git
             source: https://github.com/github/advisory-database
             path: advisories
             disabled: false
