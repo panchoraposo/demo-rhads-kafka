@@ -45,8 +45,9 @@ spec:
       enabled: true
     migrateDatabase:
       enabled: true
-    # Dependency Analytics queries TPA, so these importers are the CVE
-    # databases and Red Hat advisories the IDE report is built from.
+    # Dependency Analytics queries TPA. Only the CVE Project database and
+    # Red Hat CSAF advisories run. GitHub Advisory stays disabled; the chart
+    # also ships quay-redhat-user-workloads and redhat-sboms, already off.
     # TPA 3.1 has no CISA KEV importer; exploitability comes from the CSAF feed.
     createImporters:
       enabled: true
@@ -67,7 +68,7 @@ spec:
             transport: git
             source: https://github.com/github/advisory-database
             path: advisories
-            disabled: false
+            disabled: true
         redhat-csaf:
           csaf:
             description: Red Hat security advisories
@@ -89,9 +90,9 @@ spec:
     importer:
       enabled: true
       replicas: 1
-      # One slot per feed (GitHub Advisory, CVE Project, Red Hat CSAF) so they
+      # One slot per enabled feed (CVE Project, Red Hat CSAF) so they
       # clone and ingest together instead of waiting on the previous walk.
-      concurrency: 3
+      concurrency: 2
       resources:
         requests:
           cpu: 500m

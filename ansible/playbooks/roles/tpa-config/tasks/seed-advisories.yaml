@@ -1,7 +1,7 @@
 ---
-# The CVE Project, GitHub Advisory, and Red Hat CSAF importers are enabled on
-# the TPA CR. This seed still loads the demo-library GHSAs so RHDA can match
-# them before those clones finish.
+# CVE Project and Red Hat CSAF importers are enabled on the TPA CR.
+# GitHub Advisory stays disabled. This seed still loads the demo-library
+# GHSAs so RHDA can match them without that importer.
 - name: Request TPA OIDC token
   ansible.builtin.uri:
     url: "https://{{ keycloak_hostname }}/realms/{{ keycloak_trustify_realm }}/protocol/openid-connect/token"
