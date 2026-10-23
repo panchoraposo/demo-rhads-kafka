@@ -21,3 +21,12 @@ The cluster **Trip Planner UI (dev)** is `https://trip-quarkus-trip-quarkus-dev.
 ## Supply chain
 
 Signed `git commit` / `git push` → Nexus, OpenShift Builds, SBOM, cosign, TPA, Conforma. GitLab **tag** promotes to staging; **release** promotes to production.
+
+The first image uses `src/main/docker/Dockerfile.jvm` (`ubi9/openjdk-21`) so ACS still reports base-OS CVEs. To drop those to zero, switch to [Red Hat Hardened Images — OpenJDK 21](https://images.redhat.com/?name=openjdk&version=21) and rebuild:
+
+```bash
+cp src/main/docker/Dockerfile.ubi src/main/docker/Dockerfile.jvm
+git add src/main/docker/Dockerfile.jvm && git commit -m "demo: hardened OpenJDK runtime" && git push
+```
+
+`Dockerfile.ubi` packages the Maven `target/quarkus-app` fast-jar on `registry.access.redhat.com/hi/openjdk:21-runtime` (no shell). Application dependency CVEs in RHDA stay until those libraries are bumped.

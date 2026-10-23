@@ -1,4 +1,8 @@
 ####
+# Default runtime is ubi9/openjdk-21 (ACS still reports base-OS CVEs).
+# After that scan, switch to Red Hat Hardened Images and rebuild:
+#   cp src/main/docker/Dockerfile.ubi src/main/docker/Dockerfile.jvm
+#
 # This Dockerfile is used in order to build a container that runs the Quarkus application in JVM mode
 #
 # Before building the container image run:

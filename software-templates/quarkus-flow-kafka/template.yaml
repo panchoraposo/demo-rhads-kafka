@@ -3,7 +3,7 @@ kind: Template
 metadata:
   name: quarkus-flow-kafka
   title: Agentic Trip Planner — LangChain4j/Kafka
-  description: "Agentic trip planner on Red Hat build of Quarkus 3.33 with Red Hat langchain4j agents + Kafka CloudEvents HITL, MaaS, and the same RHADS pipelines (Nexus, Builds, SBOM, cosign, ACS, Conforma) as other Quarkus templates."
+  description: "Agentic trip planner on Red Hat build of Quarkus 3.33 with Red Hat langchain4j agents + Kafka CloudEvents HITL, MaaS, and the same RHADS pipelines (Nexus, Builds, SBOM, cosign, ACS, Conforma). Default image is ubi9/openjdk-21 (base CVEs); switch to src/main/docker/Dockerfile.ubi (Red Hat Hardened Images) to compare."
   tags:
     - recommended
     - quarkus

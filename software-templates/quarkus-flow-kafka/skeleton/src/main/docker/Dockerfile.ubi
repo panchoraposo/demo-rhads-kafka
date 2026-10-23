@@ -1,0 +1,31 @@
+# Red Hat Hardened Images. After the UBI ACS scan, copy this over Dockerfile.jvm
+# and rebuild:
+#   cp src/main/docker/Dockerfile.ubi src/main/docker/Dockerfile.jvm
+#
+# Catalog: https://images.redhat.com/?name=openjdk&version=21
+#   builder  registry.access.redhat.com/hi/openjdk:21-builder
+#   runtime  registry.access.redhat.com/hi/openjdk:21-runtime
+# Tekton already ran `mvn package` (Nexus). This file only packages
+# target/quarkus-app. The runtime image has no shell and no run-java.sh,
+# so group-0 permissions are set in the builder and java launches the fast-jar.
+#
+ARG JAVA_BUILDER=registry.access.redhat.com/hi/openjdk:21-builder
+ARG JAVA_RUNTIME=registry.access.redhat.com/hi/openjdk:21-runtime
+
+FROM ${JAVA_BUILDER} AS perms
+USER root
+WORKDIR /out
+COPY target/quarkus-app/lib/ /out/lib/
+COPY target/quarkus-app/*.jar /out/
+COPY target/quarkus-app/app/ /out/app/
+COPY target/quarkus-app/quarkus/ /out/quarkus/
+RUN chgrp -R 0 /out \
+ && chmod -R g=u /out
+
+FROM ${JAVA_RUNTIME}
+COPY --from=perms /out/ /deployments/
+WORKDIR /deployments
+ENV HOME=/tmp \
+    JAVA_OPTS_APPEND="-Dquarkus.http.host=0.0.0.0 -Djava.util.logging.manager=org.jboss.logmanager.LogManager"
+EXPOSE 8080
+ENTRYPOINT ["java", "-Dquarkus.http.host=0.0.0.0", "-Djava.util.logging.manager=org.jboss.logmanager.LogManager", "-jar", "quarkus-run.jar"]
