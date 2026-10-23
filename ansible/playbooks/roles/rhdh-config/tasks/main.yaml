@@ -150,9 +150,9 @@
         APICURIO_URL: "https://{{ apicurio_host | default('apicurio.' + openshift_base_domain) }}"
 
 # RHDH 1.10 enables the Lightspeed flavour by default (lightspeed-core sidecar).
-# Wire MaaS as an OpenAI-compatible vLLM provider so the chat FAB works.
+# The Backstage CR always mounts this Secret. Create it even when the MaaS key
+# is empty so the operator can deploy Hub; chat stays idle until a key is set.
 - name: Create Lightspeed auth secret for MaaS
-  when: (maas_api_key | default('') | length) > 0
   no_log: true
   kubernetes.core.k8s:
     state: present
@@ -166,7 +166,7 @@
       stringData:
         ENABLE_VLLM: "true"
         VLLM_URL: "{{ maas_base_url | regex_replace('/$', '') }}"
-        VLLM_API_KEY: "{{ maas_api_key }}"
+        VLLM_API_KEY: "{{ maas_api_key | default('', true) }}"
         VLLM_TLS_VERIFY: "true"
         MAAS_MODEL: "{{ maas_model | default('qwen3-14b') }}"
         # Mounted into lightspeed-core at /etc/lightspeed-mcp/authorization.
@@ -179,9 +179,9 @@
   when: (maas_api_key | default('') | length) == 0
   ansible.builtin.debug:
     msg: >-
-      Lightspeed sidecar is present but Secret lightspeed-auth-secrets was not
-      created (set MAAS_API_KEY or -e maas_api_key=...). Chat stays unconfigured
-      until the secret exists and is referenced by the Backstage CR.
+      Secret lightspeed-auth-secrets exists so Developer Hub can deploy, but
+      VLLM_API_KEY is empty (set MAAS_API_KEY or -e maas_api_key=...). Lightspeed
+      chat stays unconfigured until the key is present.
 
 - name: Remove leftover RHDH operator from the backstage namespace
   kubernetes.core.k8s:

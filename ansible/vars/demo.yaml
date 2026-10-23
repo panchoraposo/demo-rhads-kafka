@@ -141,8 +141,9 @@ quay_robot_name: pipeline
 odf_namespace: openshift-storage
 
 # --- Developer Lightspeed (RHDH 1.10 flavour + MaaS OpenAI-compatible API) ---
-# Pass -e maas_api_key=... (or export MAAS_API_KEY) so the install seeds
-# Secret lightspeed-auth-secrets for the lightspeed-core sidecar.
+# Pass -e maas_api_key=... (or export MAAS_API_KEY) to seed the MaaS key.
+# The Secret is always created: the Backstage CR mounts it, and a missing
+# Secret blocks the RHDH operator from deploying Developer Hub.
 maas_base_url: "https://maas-rhdp.apps.maas.redhatworkshops.io/v1"
 maas_model: "qwen3-14b"
 maas_api_key: "{{ lookup('env', 'MAAS_API_KEY') | default('', true) }}"
