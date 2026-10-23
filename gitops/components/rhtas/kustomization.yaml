@@ -4,4 +4,5 @@ namespace: trusted-artifact-signer
 resources:
   - namespace.yaml
   - securesign.yaml
+  - console.yaml
   - job-patch-fulcio-oidc.yaml

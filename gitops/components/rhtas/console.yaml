@@ -1,0 +1,22 @@
+# RHTAS 1.5 moved Rekor Search UI out of Securesign.rekorSearchUI into a
+# dedicated Console CR (route console-ui-trusted-artifact-signer.*/rekor-search).
+apiVersion: rhtas.redhat.com/v1
+kind: Console
+metadata:
+  name: rhads-securesign-console
+  namespace: trusted-artifact-signer
+  labels:
+    app.kubernetes.io/part-of: rhads-demo
+  annotations:
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  api:
+    replicas: 1
+  ui:
+    ingress:
+      enabled: true
+    rekor:
+      ref:
+        name: rhads-securesign
+        namespace: trusted-artifact-signer
+    replicas: 1

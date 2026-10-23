@@ -180,8 +180,17 @@
   changed_when: true
 
 - name: Apply RHTAS
-  ansible.builtin.command:
-    cmd: oc --context {{ oc_context }} apply -k {{ repo_root }}/gitops/components/rhtas
+  # Substitute CLUSTER_SUBDOMAIN_PLACEHOLDER so Fulcio OIDC is valid on first
+  # apply (v1 oidcIssuers); the PostSync job still re-patches as a safety net.
+  ansible.builtin.shell: |
+    set -euo pipefail
+    DEST=$(mktemp -d)
+    trap 'rm -rf "${DEST}"' EXIT
+    cp -a "{{ repo_root }}/gitops/components/rhtas/." "${DEST}/"
+    perl -pi -e 's/CLUSTER_SUBDOMAIN_PLACEHOLDER/{{ openshift_base_domain }}/g' "${DEST}"/*.yaml
+    oc --context {{ oc_context }} apply -k "${DEST}"
+  args:
+    executable: /bin/bash
   changed_when: true
 
 - name: Patch RHTAS Fulcio OIDC issuers (Keycloak email + Kubernetes for Chains)

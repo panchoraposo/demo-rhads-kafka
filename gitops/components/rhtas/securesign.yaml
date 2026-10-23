@@ -1,6 +1,9 @@
-# OIDC issuer uses CLUSTER_SUBDOMAIN_PLACEHOLDER (substituted when publishing to
-# GitLab). PostSync job + Ansible also patch oidcIssuers as a safety net.
-apiVersion: rhtas.redhat.com/v1alpha1
+# OIDC issuer uses CLUSTER_SUBDOMAIN_PLACEHOLDER (substituted on apply / when
+# publishing to GitLab). PostSync job + Ansible also patch oidcIssuers.
+# apiVersion v1 required: v1alpha1 only accepts OIDCIssuers (PascalCase) and
+# drops oidcIssuers, which failed apply with "At least one of OIDCIssuers or
+# MetaIssuers must be defined".
+apiVersion: rhtas.redhat.com/v1
 kind: Securesign
 metadata:
   name: rhads-securesign
@@ -11,9 +14,7 @@ metadata:
     argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
 spec:
   rekor:
-    externalAccess:
-      enabled: true
-    rekorSearchUI:
+    ingress:
       enabled: true
     monitoring:
       enabled: false
@@ -23,37 +24,29 @@ spec:
     monitoring:
       enabled: false
   fulcio:
-    externalAccess:
+    ingress:
       enabled: true
     config:
-      # RHTAS v1 CRD field is oidcIssuers (camelCase). publish-platform-repo
-      # substitutes CLUSTER_SUBDOMAIN_PLACEHOLDER so Argo does not heal back to
-      # a dead issuer and break Dev Spaces gitsign OIDC.
       oidcIssuers:
         - clientID: trusted-artifact-signer
           issuer: https://sso.CLUSTER_SUBDOMAIN_PLACEHOLDER/realms/backstage
           issuerURL: https://sso.CLUSTER_SUBDOMAIN_PLACEHOLDER/realms/backstage
           type: email
-        # Tekton Chains keyless: projected SA token audience "sigstore"
-        # (iss https://kubernetes.default.svc).
+        # Tekton Chains keyless: projected SA token audience "sigstore".
         - clientID: sigstore
           issuer: https://kubernetes.default.svc
           issuerURL: https://kubernetes.default.svc
           type: kubernetes
-    certificate:
-      organizationName: RHADS Demo
-      organizationEmail: security@rhads.demo
-      commonName: fulcio.rhads-demo
+    signer:
+      certificateChain:
+        organizationName: RHADS Demo
+        organizationEmail: security@rhads.demo
+        commonName: fulcio.rhads-demo
     monitoring:
       enabled: false
   tuf:
-    externalAccess:
+    ingress:
       enabled: true
-    keys:
-      - name: rekor.pub
-      - name: ctfe.pub
-      - name: fulcio_v1.crt.pem
-      - name: tsa.certchain.pem
     pvc:
       accessModes:
         - ReadWriteOnce
@@ -63,7 +56,7 @@ spec:
     monitoring:
       enabled: false
   tsa:
-    externalAccess:
+    ingress:
       enabled: true
     monitoring:
       enabled: false
