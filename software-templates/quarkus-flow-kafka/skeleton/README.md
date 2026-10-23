@@ -22,7 +22,7 @@ The cluster **Trip Planner UI (dev)** is `https://trip-quarkus-trip-quarkus-dev.
 
 Signed `git commit` / `git push` → Nexus, OpenShift Builds, SBOM, cosign, TPA, Conforma. GitLab **tag** promotes to staging; **release** promotes to production.
 
-The first image uses `src/main/docker/Dockerfile.jvm` (`ubi9/openjdk-21`) so ACS still reports base-OS CVEs. To drop those to zero, switch to [Red Hat Hardened Images — OpenJDK 21](https://images.redhat.com/?name=openjdk&version=21) and rebuild:
+The first image uses `src/main/docker/Dockerfile.jvm` (`ubi9/openjdk-21`) so ACS reports base-OS CVEs. To switch the runtime to [Red Hat Hardened Images — OpenJDK 21](https://images.redhat.com/?name=openjdk&version=21) and rebuild:
 
 ```bash
 cp src/main/docker/Dockerfile.ubi src/main/docker/Dockerfile.jvm

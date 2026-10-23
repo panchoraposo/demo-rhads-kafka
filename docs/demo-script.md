@@ -27,7 +27,7 @@ Shared password: `backstage`. Keep `https://dashboard.apps.<cluster>/` open.
 2. Command palette → **Red Hat Dependency Analytics** on `pom.xml` (commons-text 1.9 / snakeyaml 1.33).
 3. **Trusted Profile Analyzer** — SBOM from the first build.
 4. Optionally bump CVE deps (do not delete them) after the unsigned-tag demo beat later.
-5. After ACS shows base-OS findings on `ubi9/openjdk-21`, switch to [Red Hat Hardened Images — OpenJDK 21](https://images.redhat.com/?name=openjdk&version=21): `cp src/main/docker/Dockerfile.ubi src/main/docker/Dockerfile.jvm`, commit, push → rebuild. That file runs the fast-jar on `registry.access.redhat.com/hi/openjdk:21-runtime` (no shell). ACS base CVEs drop; RHDA library findings stay until the deps are bumped.
+5. After ACS shows base-OS findings on `ubi9/openjdk-21`, switch to [Red Hat Hardened Images — OpenJDK 21](https://images.redhat.com/?name=openjdk&version=21): `cp src/main/docker/Dockerfile.ubi src/main/docker/Dockerfile.jvm`, commit, push → rebuild. That file runs the fast-jar on `registry.access.redhat.com/hi/openjdk:21-runtime` (Hummingbird OS, no shell). On ACS 4.11 the StackRox scanner does not inventory that OS: the image page shows **Image OS: unknown** and **CVE data may be inaccurate**. That is not a zero-CVE result (RHACS 4.11 dropped hardened-image reporting because of a gap in the Red Hat VEX feed). RHDA library findings stay until the deps are bumped.
 6. **Configure Sigstore git commit signing** when ready for the signed promotion path.
 
 ## 3. Kafka HITL — plan and approve (8 min)
