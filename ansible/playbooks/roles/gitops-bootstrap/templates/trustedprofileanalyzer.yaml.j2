@@ -78,6 +78,10 @@ spec:
     server:
       enabled: true
       replicas: 1
+      # Empty list disables /api/v2/purl/recommend (FEATURE_UNCONFIGURED) and
+      # the RHDA report stays on "Service Unavailable".
+      recommendPatterns:
+        - "^(.+)\\.redhat-[0-9]+$"
       resources:
         requests:
           cpu: 250m
