@@ -47,5 +47,28 @@ spec:
           cpu: "2"
           memory: 4Gi
     scannerComponent: Enabled
+  # ACS 5 dropped the StackRox scanner. Scanner V4 is the only scanner
+  # Central integrates. Disabled leaves image checks with
+  # "no image scanners are integrated" and an empty CVE report.
   scannerV4:
-    scannerComponent: Disabled
+    scannerComponent: Enabled
+    indexer:
+      nodeSelector:
+        node-role.kubernetes.io/worker: ""
+      scaling:
+        autoScaling: Disabled
+        replicas: 1
+    matcher:
+      nodeSelector:
+        node-role.kubernetes.io/worker: ""
+      scaling:
+        autoScaling: Disabled
+        replicas: 1
+    db:
+      nodeSelector:
+        node-role.kubernetes.io/worker: ""
+      persistence:
+        persistentVolumeClaim:
+          # 10Gi fills up while importing RHEL VEX, the matcher never
+          # finishes initializing, and every image check returns no CVEs.
+          size: 50Gi
