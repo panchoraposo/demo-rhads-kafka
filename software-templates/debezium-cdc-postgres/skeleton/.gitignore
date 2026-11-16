@@ -1,3 +1,5 @@
-vendor/
+# vendor/ is created by the pipeline (go mod vendor) and must be uploaded
+# to the OpenShift binary build. oc start-build excludes paths in .gitignore,
+# so ignoring vendor/ makes the image build skip the vendored modules.
 bin/
 .env
