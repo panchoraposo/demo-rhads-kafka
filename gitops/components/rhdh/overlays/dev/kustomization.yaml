@@ -10,11 +10,19 @@ resources:
   - llama-stack-maas-config.yaml
   - lightspeed-stack-maas-config.yaml
   - rhdh-profile-maas-config.yaml
+  - allow-platform-egress.yaml
+  - devhub-plugin-catalog.yaml
 
 configMapGenerator:
   - name: developer-hub-config
     files:
       - app-config.yaml
+    options:
+      disableNameSuffixHash: true
+  - name: tekton-dora-collector
+    files:
+      - package.json=tekton-dora-collector/package.json
+      - index.cjs.js=tekton-dora-collector/index.cjs.js
     options:
       disableNameSuffixHash: true
   - name: topology-camel-icon

@@ -149,7 +149,7 @@
         VAULT_TOKEN: "{{ vault_rhdh_token | default('') }}"
         APICURIO_URL: "https://{{ apicurio_host | default('apicurio.' + openshift_base_domain) }}"
 
-# RHDH 1.10 enables the Lightspeed flavour by default (lightspeed-core sidecar).
+# RHDH 2.1 enables the intelligent-assistant flavour by default (lightspeed-core sidecar).
 # The Backstage CR always mounts this Secret. Create it even when the MaaS key
 # is empty so the operator can deploy Hub; chat stays idle until a key is set.
 - name: Create Lightspeed auth secret for MaaS

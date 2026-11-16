@@ -1,0 +1,12 @@
+# RHDH 2.1 plugin catalog source. The operator reads this to resolve
+# {{inherit}} images and the Extensions page. The digest matches the
+# catalog index shipped with rhdh-operator 2.1.0.
+apiVersion: rhdh.redhat.com/v1alpha5
+kind: DevHubPluginCatalog
+metadata:
+  name: rhdh-primary-catalog
+  labels:
+    app.kubernetes.io/part-of: rhads-demo
+spec:
+  source:
+    ref: oci://registry.access.redhat.com/rhdh/plugin-catalog-index@sha256:0e059aa661032f31bc36840b9a177bab13da33c4bc4683fe33bc05d4d05248ca

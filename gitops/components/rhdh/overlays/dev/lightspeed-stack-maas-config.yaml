@@ -8,9 +8,9 @@ metadata:
 data:
   lightspeed-stack.yaml: |
     #
-    # Lightspeed Core Stack — RHADS demo (MaaS + catalog MCP).
-    # authorization_headers values that are not keywords (client/kubernetes/oauth)
-    # are read as secret file paths by LCS.
+    # Lightspeed Core stack for RHDH 2.1.
+    # Inference providers live here. The 1.10 llama-stack config.yaml is not mounted.
+    # MCP authorization is a file path: LCS reads it and llama-stack adds "Bearer ".
     name: lightspeed-core-stack
     service:
       host: ${env.SERVICE_HOST:=127.0.0.1}
@@ -21,7 +21,41 @@ data:
       access_log: true
     llama_stack:
       use_as_library_client: true
-      library_client_config_path: /app-root/config.yaml
+      config:
+        baseline: byo-llm
+        native_override:
+          vector_stores:
+            annotation_prompt_params:
+              enable_annotations: true
+              annotation_instruction_template: >
+                When appropriate, cite sources at the end of sentences using doc_url and doc_title format.
+                Citing sources is not always required because citations are handled externally.
+                Never include any citation that is in the form '<| file-id |>'.
+    inference:
+      default_provider: vllm
+      default_model: ${env.MAAS_MODEL:=qwen3-14b}
+      providers:
+        - type: sentence_transformers
+        - type: vllm
+          id: vllm
+          api_key_env: VLLM_API_KEY
+          allowed_models:
+            - ${env.MAAS_MODEL:=qwen3-14b}
+          extra:
+            base_url: ${env.VLLM_URL:=}
+            max_tokens: ${env.VLLM_MAX_TOKENS:=4096}
+            network:
+              tls:
+                verify: ${env.VLLM_TLS_VERIFY:=true}
+    vector_store:
+      default_provider: notebooks
+      providers:
+        - id: notebooks
+          type: faiss
+          embedding_model: nomic-ai/nomic-embed-text-v1.5
+          embedding_dimension: 768
+          config:
+            path: /tmp/vector_db/notebooks/faiss_store.db
     user_data_collection:
       feedback_enabled: true
       feedback_storage: '/tmp/data/feedback'
@@ -33,6 +67,21 @@ data:
         db_path: '/tmp/cache.db'
     customization:
       profile_path: '/app-root/rhdh-profile.py'
+    shields:
+      - name: lightspeed_question_validity
+        provider_id: ${env.ENABLE_VALIDATION:=__disabled__}
+        config:
+          model_id: ${env.VALIDATION_PROVIDER}/${env.VALIDATION_MODEL_NAME}
+          model_prompt: |-
+            Instructions:
+            You are a question classifier for an enterprise developer assistant.
+            Respond with ONLY ${allowed} or ${rejected}.
+            Question:
+            ${message}
+            Response:
+          invalid_question_response: |-
+            Hi, I'm the Red Hat Developer Hub Intelligent Assistant.
+            I can help with software development, developer tooling, and this portal's catalog.
     mcp_servers:
       - name: mcp-integration-tools
         provider_id: 'model-context-protocol'

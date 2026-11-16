@@ -27,9 +27,10 @@ argocd_controller_sa: openshift-gitops-argocd-application-controller
 output_file: /tmp/gitops-subscription.yaml
 
 # --- Product channels (OpenShift 4.20+, latest GA on this cluster) ---
-# OpenShift GitOps 1.21 · Pipelines 1.23 · RHDH 1.10 · Dev Spaces 3.29
-# RHTAS 1.4.3 · RHTPA 3.1 · RHACS 4.11 · Quay 3.17 · RHBK 26.6
-rhdh_channel: fast
+# OpenShift GitOps 1.21 · Pipelines 1.23 · RHDH 2.1 · Dev Spaces 3.29
+# RHTAS 1.4.3 · RHTPA 3.1 · RHACS 5.0 · Quay 3.17 · RHBK 26.6
+# fast stays on 1.10. 2.1 is published only on fast-2.1.
+rhdh_channel: fast-2.1
 pipelines_channel: latest
 devspaces_channel: stable
 rhtas_channel: stable
@@ -140,7 +141,7 @@ quay_robot_name: pipeline
 # --- Object storage (ODF MCG / NooBaa) ---
 odf_namespace: openshift-storage
 
-# --- Developer Lightspeed (RHDH 1.10 flavour + MaaS OpenAI-compatible API) ---
+# --- Intelligent Assistant (RHDH 2.1 flavour + MaaS OpenAI-compatible API) ---
 # Pass -e maas_api_key=... (or export MAAS_API_KEY) to seed the MaaS key.
 # The Secret is always created: the Backstage CR mounts it, and a missing
 # Secret blocks the RHDH operator from deploying Developer Hub.

@@ -10,8 +10,8 @@ spec:
     extraEnvs:
       secrets:
         - name: backstage-env
-        # Lightspeed Core sidecar (RHDH 1.10 flavour). OpenAI-compatible MaaS
-        # via the vLLM provider: ENABLE_VLLM / VLLM_URL / VLLM_API_KEY.
+        # Lightspeed Core sidecar (RHDH 2.1 intelligent-assistant flavour).
+        # OpenAI-compatible MaaS via the vLLM provider: ENABLE_VLLM / VLLM_URL / VLLM_API_KEY.
         - name: lightspeed-auth-secrets
           containers:
             - lightspeed-core
@@ -21,14 +21,11 @@ spec:
         - name: rbac-policies
         - name: catalog-static
         - name: topology-camel-icon
-        # Operator 1.10 mounts flavour files at these paths and then appends
-        # another volume if deployment.patch reuses the same name, so the
-        # Deployment never gets created. Mount our copies on top instead.
-        - name: llama-stack-maas-config
-          mountPath: /app-root
-          key: config.yaml
-          containers:
-            - lightspeed-core
+        # The 2.1 flavour mounts its own lightspeed-stack.yaml and rhdh-profile.py
+        # at /app-root. These copies overlay those two files. Do not also mount
+        # llama-stack config.yaml: 2.1 reads inference providers from
+        # lightspeed-stack.yaml, and a deployment.patch volume that reuses the
+        # flavour volume name prevents the Deployment from being created.
         - name: lightspeed-stack-maas-config
           mountPath: /app-root
           key: lightspeed-stack.yaml
@@ -58,6 +55,17 @@ spec:
         template:
           spec:
             volumes:
+              # 2.1 installs every plugin as an OCI image. The operator default
+              # 2Gi volume fills up and the install init container exits ENOSPC.
+              - name: dynamic-plugins-root
+                ephemeral:
+                  volumeClaimTemplate:
+                    spec:
+                      accessModes:
+                        - ReadWriteOnce
+                      resources:
+                        requests:
+                          storage: 10Gi
               # Raw MCP token. LCS reads this file and llama-stack adds "Bearer ".
               - name: lightspeed-mcp-token
                 secret:
@@ -65,6 +73,11 @@ spec:
                   items:
                     - key: MCP_TOKEN_BEARER
                       path: authorization
+              # Custom Scorecard collector. Copied into the plugin root after
+              # the OCI installer, because that volume is wiped on each new pod.
+              - name: tekton-dora-collector
+                configMap:
+                  name: tekton-dora-collector
             containers:
               - name: lightspeed-core
                 volumeMounts:
@@ -136,3 +149,273 @@ spec:
                     memory: 128Mi
                   limits:
                     memory: 256Mi
+              - name: install-tekton-dora-collector
+                image: registry.redhat.io/openshift4/ose-cli-rhel9:v4.22
+                command: ["/bin/bash", "-c"]
+                args:
+                  - |
+                    set -euo pipefail
+                    dest=/dynamic-plugins-root/rhads-scorecard-backend-module-tekton-dora
+                    mkdir -p "${dest}/dist"
+                    cp /collector/package.json "${dest}/package.json"
+                    cp /collector/index.cjs.js "${dest}/dist/index.cjs.js"
+                    echo "Installed Tekton DORA collector at ${dest}"
+                volumeMounts:
+                  - name: dynamic-plugins-root
+                    mountPath: /dynamic-plugins-root
+                  - name: tekton-dora-collector
+                    mountPath: /collector
+                    readOnly: true
+                resources:
+                  requests:
+                    cpu: 20m
+                    memory: 64Mi
+                  limits:
+                    memory: 128Mi
+              # Runs after install-dynamic-plugins. Community packages need a
+              # small edit before the backend process loads them.
+              - name: patch-community-plugins
+                image: registry.redhat.io/openshift4/ose-cli-rhel9:v4.22
+                command: ["/bin/bash", "-c"]
+                args:
+                  - |
+                    set -euo pipefail
+                    python3 - << 'PY'
+                    from pathlib import Path
+
+                    gitlab = Path("/dynamic-plugins-root/immobiliarelabs-backstage-plugin-gitlab-backend/dist/bundle.cjs.js")
+                    if not gitlab.is_file():
+                        raise SystemExit(f"missing {gitlab}")
+                    text = gitlab.read_text()
+                    needle = "plugin.gitlabPlugin, plugin.catalogPluginGitlabFillerProcessorModule"
+                    if needle in text:
+                        gitlab.write_text(text.replace(needle, "plugin.gitlabPlugin", 1))
+                        print("GitLab filler processor removed")
+                    elif "return [plugin.gitlabPlugin];" in text:
+                        print("GitLab filler processor already removed")
+                    else:
+                        raise SystemExit("GitLab backend bundle shape changed")
+
+                    # The six overview cards ship without a filter, so a User
+                    # page with no project slug renders "wrong project_slug".
+                    # The Gitlab tab already uses isGitlabAvailable (g.T1).
+                    cards = Path("/dynamic-plugins-root/immobiliarelabs-backstage-plugin-gitlab/dist/static")
+                    alpha = next(
+                        (p for p in cards.glob("__federation_expose_alpha*.js") if "gitlabReadmeCard" in p.read_text()),
+                        None,
+                    )
+                    if alpha is None:
+                        raise SystemExit("GitLab overview card bundle not found")
+                    text = alpha.read_text()
+                    names = [
+                        "readme",
+                        "coverage",
+                        "releases",
+                        "merge-requests-stats",
+                        "people",
+                        "languages",
+                    ]
+                    changed = 0
+                    for name in names:
+                        old = f'name:"{name}",params:{{loader:'
+                        new = f'name:"{name}",params:{{filter:g.T1,loader:'
+                        if old in text:
+                            text = text.replace(old, new, 1)
+                            changed += 1
+                        elif new not in text:
+                            raise SystemExit(f"GitLab card {name} shape changed")
+                    if changed:
+                        alpha.write_text(text)
+                        print(f"GitLab overview cards limited to annotated entities ({changed})")
+                    else:
+                        print("GitLab overview cards already filtered")
+                    # Hashed chunks are cached for 14 days. Point the remote
+                    # entry at a new filename so browsers that already loaded
+                    # the unfiltered cards pick up the filter.
+                    busted = alpha.with_name("__federation_expose_alpha.rhads1.chunk.js")
+                    busted.write_text(alpha.read_text())
+                    for rel in (
+                        "immobiliarelabs-backstage-plugin-gitlab/dist/remoteEntry.js",
+                        "immobiliarelabs-backstage-plugin-gitlab/dist/mf-manifest.json",
+                    ):
+                        pointer = Path("/dynamic-plugins-root") / rel
+                        body = pointer.read_text()
+                        if "9f9a8b9a" in body:
+                            pointer.write_text(body.replace("9f9a8b9a", "rhads1"))
+                            print(f"cache-busted {rel}")
+                        elif "rhads1" in body:
+                            print(f"already cache-busted {rel}")
+                        else:
+                            raise SystemExit(f"GitLab chunk hash missing from {rel}")
+
+                    quay = Path("/dynamic-plugins-root/backstage-community-plugin-quay-backend/dist/services/QuayService.cjs.js")
+                    if not quay.is_file():
+                        raise SystemExit(f"missing {quay}")
+                    text = quay.read_text()
+                    marker = "RHADS_NO_SECURITY_SCANNER"
+                    if marker in text:
+                        print("Quay security fallback already installed")
+                    else:
+                        old = (
+                            "  async getSecurityDetails(instanceName, org, repo, digest) {\n"
+                            "    const params = new URLSearchParams();\n"
+                            "    params.append(\"vulnerabilities\", \"true\");\n"
+                            "    return this.fetchFromQuay(\n"
+                            "      `/api/v1/repository/${org}/${repo}/manifest/${digest}/security?${params}`,\n"
+                            "      instanceName\n"
+                            "    );\n"
+                            "  }"
+                        )
+                        new = (
+                            "  async getSecurityDetails(instanceName, org, repo, digest) {\n"
+                            "    const params = new URLSearchParams();\n"
+                            "    params.append(\"vulnerabilities\", \"true\");\n"
+                            "    const endpoint = `/api/v1/repository/${org}/${repo}/manifest/${digest}/security?${params}`;\n"
+                            "    const instance = this.getQuayInstance(instanceName);\n"
+                            "    if (!instance) {\n"
+                            "      throw new Error(`Quay instance \"${instanceName}\" not found in configuration.`);\n"
+                            "    }\n"
+                            "    const response = await fetch(`${instance.apiUrl}${endpoint}`, {\n"
+                            "      headers: {\n"
+                            "        \"Content-Type\": \"application/json\",\n"
+                            "        ...instance.token ? { Authorization: `Bearer ${instance.token}` } : {}\n"
+                            "      }\n"
+                            "    });\n"
+                            "    // RHADS_NO_SECURITY_SCANNER: this Quay has no security scanner.\n"
+                            "    // The endpoint is 401 without a scanner token and 404 once\n"
+                            "    // authenticated. Either one rejects the whole tag table.\n"
+                            "    if (response.status === 401 || response.status === 404) {\n"
+                            "      return { status: \"unsupported\", data: null };\n"
+                            "    }\n"
+                            "    if (!response.ok) {\n"
+                            "      this.logger.error(\n"
+                            "        `Quay Service request failed: (${response.status}, ${response.statusText})`\n"
+                            "      );\n"
+                            "      throw new Error(`Failed to fetch data: ${response.statusText}`);\n"
+                            "    }\n"
+                            "    return await response.json();\n"
+                            "  }"
+                        )
+                        if old not in text:
+                            raise SystemExit("Quay getSecurityDetails shape changed")
+                        quay.write_text(text.replace(old, new, 1))
+                        print("Quay security fallback installed")
+
+                    # Topology adds pf-v6-theme-dark only when the stored theme
+                    # id is "dark". With no selection the Hub follows the OS
+                    # dark preference, the canvas stays on light PatternFly
+                    # tokens, and the dark-theme labels stay white.
+                    topology = Path("/dynamic-plugins-root/backstage-community-plugin-topology/dist/static/354.c7cffafa.chunk.js")
+                    if not topology.is_file():
+                        raise SystemExit(f"missing {topology}")
+                    text = topology.read_text()
+                    old = 'let a="dark"===t;'
+                    new = 'let a="dark"===t||null==t&&window.matchMedia("(prefers-color-scheme: dark)").matches;'
+                    if old in text:
+                        text = text.replace(old, new, 1)
+                        topology.write_text(text)
+                        print("Topology follows the Hub dark theme")
+                    elif new in text:
+                        print("Topology theme check already patched")
+                    else:
+                        raise SystemExit("Topology theme check shape changed")
+                    topology.with_name("354.rhads2.chunk.js").write_text(text)
+                    for rel in (
+                        "backstage-community-plugin-topology/dist/remoteEntry.js",
+                        "backstage-community-plugin-topology/dist/mf-manifest.json",
+                    ):
+                        pointer = Path("/dynamic-plugins-root") / rel
+                        body = pointer.read_text()
+                        if "c7cffafa" in body:
+                            pointer.write_text(body.replace("c7cffafa", "rhads2"))
+                            print(f"cache-busted {rel}")
+                        elif "rhads2" in body:
+                            print(f"already cache-busted {rel}")
+                        else:
+                            raise SystemExit(f"Topology chunk hash missing from {rel}")
+
+                    # Homepage DORA cards include only entities owned by the
+                    # signed-in user or their groups. Application services are
+                    # owned by developers, so a platform engineer sees no data.
+                    scorecard = Path("/dynamic-plugins-root/red-hat-developer-hub-backstage-plugin-scorecard-backend/dist/service/CatalogMetricService.cjs.js")
+                    if not scorecard.is_file():
+                        raise SystemExit(f"missing {scorecard}")
+                    text = scorecard.read_text()
+                    marker = "RHADS_PLATFORM_DORA"
+                    old = (
+                        "    if (memberOfRelations.length > 0) {\n"
+                        "      for (const relation of memberOfRelations) {\n"
+                        "        ownerRefs.push(relation.targetRef);\n"
+                        "      }\n"
+                        "    }\n"
+                        "    return ownerRefs;"
+                    )
+                    new = (
+                        "    if (memberOfRelations.length > 0) {\n"
+                        "      for (const relation of memberOfRelations) {\n"
+                        "        ownerRefs.push(relation.targetRef);\n"
+                        "      }\n"
+                        "    }\n"
+                        "    // RHADS_PLATFORM_DORA: platform engineers review delivery\n"
+                        "    // for the application teams, not only services they own.\n"
+                        "    if (\n"
+                        "      ownerRefs.includes(\"group:default/platform-engineers\") &&\n"
+                        "      !ownerRefs.includes(\"group:default/developers\")\n"
+                        "    ) {\n"
+                        "      ownerRefs.push(\"group:default/developers\");\n"
+                        "    }\n"
+                        "    return ownerRefs;"
+                    )
+                    if marker in text:
+                        print("Scorecard already includes developer services for platform engineers")
+                    elif old in text:
+                        scorecard.write_text(text.replace(old, new, 1))
+                        print("Scorecard includes developer services for platform engineers")
+                    else:
+                        raise SystemExit("Scorecard owner lookup shape changed")
+
+                    # With no root entity the catalog graph walks nothing, so the
+                    # page is an empty canvas. Load the selected kinds instead.
+                    graph = Path("/dynamic-plugins-root/red-hat-developer-hub-backstage-plugin-app-defaults/dist/static/23620.c5e85541.chunk.js")
+                    if not graph.is_file():
+                        raise SystemExit(f"missing {graph}")
+                    text = graph.read_text()
+                    old_fetch = "requestEntities:(0,u.useCallback)(e=>{let r=new Set(e),{requestedEntities:n}=t.current;(r.size!==n.size||Array.from(r).some(e=>!n.has(e)))&&(t.current.requestedEntities=r,c(),a())},[t,c,a])"
+                    new_fetch = "requestEntities:(0,u.useCallback)((refs,kinds)=>{if(!refs.length){let key=Array.isArray(kinds)?kinds.map(k=>String(k).toLowerCase()).sort().join(\",\"):\"*\";if(t.current.loadedKinds!==key){t.current.loadedKinds=key;let filter=key===\"*\"?void 0:{kind:key.split(\",\")};e.getEntities(filter?{filter}:void 0).then(({items:items})=>{let next=items.filter(Boolean).map(item=>{let ref=(0,o.U2)(item);return t.current.cachedEntities.set(ref,item),ref});t.current.requestedEntities=new Set(next);a()}).catch(()=>{});}return}let r=new Set(refs),{requestedEntities:n}=t.current;(r.size!==n.size||Array.from(r).some(x=>!n.has(x)))&&(t.current.requestedEntities=r,c(),a())},[t,c,a,e])"
+                    old_walk = "let r=new Set([...e]),o=new Set,i=[...e],c=0;for(;i.length>0&&(!isFinite(t)||c<t);){"
+                    new_walk = "let roots=e.length?e:Object.keys(s);if(!e.length){if(!roots.length)return void f([],n);f([],n)}let r=new Set(roots),o=new Set,i=[...roots],c=0;for(;i.length>0&&(!isFinite(t)||c<t);){"
+                    if old_fetch in text and old_walk in text:
+                        text = text.replace(old_fetch, new_fetch, 1).replace(old_walk, new_walk, 1)
+                        graph.write_text(text)
+                        print("Catalog graph draws the catalog when no root is selected")
+                    elif new_fetch in text and new_walk in text:
+                        print("Catalog graph already draws the full catalog")
+                    else:
+                        raise SystemExit("Catalog graph bundle shape changed")
+                    graph.with_name("23620.rhads3.chunk.js").write_text(text)
+                    app_defaults = Path("/dynamic-plugins-root/red-hat-developer-hub-backstage-plugin-app-defaults/dist")
+                    for pointer in (
+                        app_defaults / "remoteEntry.js",
+                        app_defaults / "mf-manifest.json",
+                        *app_defaults.glob("static/runtime.*.js"),
+                    ):
+                        body = pointer.read_text()
+                        if "c5e85541" in body:
+                            pointer.write_text(body.replace("c5e85541", "rhads3"))
+                            print(f"cache-busted {pointer.name}")
+                        elif "rhads3" in body:
+                            print(f"already cache-busted {pointer.name}")
+                        elif pointer.name.startswith("runtime."):
+                            print(f"runtime has no graph hash: {pointer.name}")
+                        else:
+                            raise SystemExit(f"Catalog graph chunk hash missing from {pointer.name}")
+                    PY
+                volumeMounts:
+                  - name: dynamic-plugins-root
+                    mountPath: /dynamic-plugins-root
+                resources:
+                  requests:
+                    cpu: 20m
+                    memory: 64Mi
+                  limits:
+                    memory: 128Mi

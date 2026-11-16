@@ -6,7 +6,7 @@ metadata:
   labels:
     app.kubernetes.io/part-of: rhads-demo
 spec:
-  channel: fast
+  channel: fast-2.1
   installPlanApproval: Automatic
   name: rhdh
   source: redhat-operators

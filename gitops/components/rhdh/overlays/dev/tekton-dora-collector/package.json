@@ -1,0 +1,11 @@
+{
+  "name": "@rhads/backstage-plugin-scorecard-backend-module-tekton-dora",
+  "version": "0.1.0",
+  "private": true,
+  "main": "./dist/index.cjs.js",
+  "backstage": {
+    "role": "backend-plugin-module",
+    "pluginId": "scorecard",
+    "pluginPackage": "@red-hat-developer-hub/backstage-plugin-scorecard-backend"
+  }
+}

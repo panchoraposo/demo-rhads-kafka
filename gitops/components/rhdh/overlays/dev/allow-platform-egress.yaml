@@ -1,0 +1,22 @@
+# RHDH 2.1 installs a default-deny NetworkPolicy. Its HTTPS rule only
+# opens 443 and 6443. Workshop Keycloak listens on 8443, and the Vault
+# plugin talks to the in-cluster service on 8200. These rules are additive;
+# the operator leaves user-created policies in place.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-platform-egress
+  labels:
+    app.kubernetes.io/part-of: rhads-demo
+spec:
+  podSelector:
+    matchLabels:
+      rhdh.redhat.com/app: backstage-developer-hub
+  policyTypes:
+    - Egress
+  egress:
+    - ports:
+        - port: 8443
+          protocol: TCP
+        - port: 8200
+          protocol: TCP

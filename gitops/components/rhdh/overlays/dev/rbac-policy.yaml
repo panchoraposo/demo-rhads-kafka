@@ -79,10 +79,21 @@ data:
     p, role:default/plugins, vault.view.read, read, allow
     p, role:default/developer, gitlab.pipeline.read, read, allow
     p, role:default/platformengineer, gitlab.pipeline.read, read, allow
-    # Developer Lightspeed chat (RHDH 1.10 flavour)
-    p, role:default/plugins, lightspeed.chat.read, read, allow
-    p, role:default/plugins, lightspeed.chat.create, create, allow
-    p, role:default/plugins, lightspeed.chat.delete, delete, allow
+    # Intelligent Assistant (RHDH 2.1). 5.3.x checks "intelligent-assistant.chat"
+    # with action use; some builds still check the older read/create/delete names.
+    p, role:default/plugins, intelligent-assistant.chat, use, allow
+    p, role:default/plugins, intelligent-assistant.chat.read, read, allow
+    p, role:default/plugins, intelligent-assistant.chat.create, create, allow
+    p, role:default/plugins, intelligent-assistant.chat.delete, delete, allow
+    p, role:default/plugins, intelligent-assistant.chat.access, use, allow
+    p, role:default/plugins, intelligent-assistant.chat.use, use, allow
+    p, role:default/plugins, intelligent-assistant.chat.manage, use, allow
+    p, role:default/plugins, intelligent-assistant.mcp.tools, use, allow
+    # Scorecard DORA cards and the component Scorecard tab.
+    p, role:default/plugins, scorecard.metric.read, read, allow
+    # Adoption Insights is an admin page. The route is omitted, and the
+    # click lands on the 404 page, unless this permission is allowed.
+    p, role:default/platformengineer, adoption-insights.events.read, read, allow
     g, group:default/platform-engineers, role:default/location_read
     g, group:default/platform-engineers, role:default/platformengineer
     g, group:default/platform-engineers, role:default/scaffolder_execute
