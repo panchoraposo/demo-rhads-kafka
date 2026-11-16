@@ -8,6 +8,7 @@ import com.tripplanner.agentic.agents.ItineraryPlannerAgent;
 import com.tripplanner.agentic.agents.SkillGuidance;
 import com.tripplanner.agentic.agents.VehicleAdvisorAgent;
 import com.tripplanner.agentic.agents.VehicleReviser;
+import com.tripplanner.agentic.tools.RentalPricingTool;
 import com.tripplanner.model.BookingConfirmation;
 import com.tripplanner.model.ItineraryResult;
 import com.tripplanner.model.TripApproval;
@@ -93,7 +94,8 @@ public class TripPlannerService {
                         days,
                         request.tripType(),
                         request.preferences(),
-                        skills),
+                        skills,
+                        RentalPricingTool.describe(request.currency())),
                 workers);
 
         TripPlan.VehicleRecommendation vehicle = vehicleFut.join();
@@ -104,9 +106,16 @@ public class TripPlannerService {
 
         vehicle = reviewVehicle(vehicle, request, days, travelers);
 
-        Log.info("[planner] cost estimator…");
-        TripPlan.CostEstimate costs = costEstimator.estimateCosts(
-                vehicle, itinerary, days, travelers, request.budget());
+        Log.infof("[planner] cost estimator currency=%s…", RentalPricingTool.normalize(request.currency()));
+        RentalPricingTool.use(request.currency());
+        final TripPlan.CostEstimate costs;
+        try {
+            costs = costEstimator.estimateCosts(
+                    vehicle, itinerary, days, travelers, request.budget(),
+                    RentalPricingTool.describe(request.currency()));
+        } finally {
+            RentalPricingTool.clear();
+        }
         Log.infof("[planner] done total=%s", costs != null ? costs.total() : "?");
 
         return new TripPlan(vehicle, itinerary.routeOverview(), itinerary.itinerary(), costs);

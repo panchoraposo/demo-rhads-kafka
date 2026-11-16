@@ -17,6 +17,7 @@ metadata:
     gitlab.com/project-slug: ${{values.destination}}
     quay.io/repository-slug: rhads/${{values.component_id}}
     janus-idp.io/tekton: ${{values.component_id}}
+    scorecard.io/dora: "true"
     # HashiCorp Vault plugin — EntityVaultCard on Overview
     vault.io/secrets-path: apps/${{values.component_id}}
   links:

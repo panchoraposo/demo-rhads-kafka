@@ -7,12 +7,14 @@ metadata:
 spec:
   serviceAccountName: pipeline
   triggers:
-    - name: push-main
+    - name: push-branch
       interceptors:
         - ref: { kind: ClusterInterceptor, name: cel }
           params:
             - name: filter
-              value: "body.object_kind == 'push' && body.ref == 'refs/heads/main'"
+              # Feature branches run the same secure build. Deleting a branch is a push
+              # whose "after" SHA is all zeros and must not start a pipeline.
+              value: "body.object_kind == 'push' && body.ref.startsWith('refs/heads/') && body.after != '0000000000000000000000000000000000000000'"
       bindings:
         - ref: {{ include "rhads-build.name" . }}-commit
       template:

@@ -3,7 +3,7 @@ kind: Template
 metadata:
   name: debezium-cdc-postgres
   title: CDC — Debezium PostgreSQL
-  description: "Change Data Capture with Red Hat build of Debezium + PostgreSQL. Shared KafkaConnect (rhads-debezium), Apicurio schema registry, Go consumer UI, Vault/ESO secrets. Community Go modules + Debian bases for RHDA/ACS CVEs; switch to Dockerfile.ubi to compare."
+  description: "Propose a change to an existing CDC application. Opens a branch and a GitLab merge request; the branch runs the application's secure pipeline, and merging into the target branch integrates the change."
   tags:
     - cdc
     - debezium
@@ -15,14 +15,15 @@ spec:
   owner: group:default/developers
   type: service
   parameters:
-    - title: Application
-      required: [component_id, owner]
+    - title: Existing application
+      required: [component_id, owner, target_branch]
       properties:
         component_id:
-          title: Name
+          title: Application
           type: string
+          description: GitLab project that already exists, with its pipeline and GitOps. This template does not create an application.
           default: orders-cdc
-          ui:field: EntityNamePicker
+          pattern: '^([a-zA-Z][a-zA-Z0-9]*)(-[a-zA-Z0-9]+)*$'
           maxLength: 18
         description:
           title: Description
@@ -32,6 +33,30 @@ spec:
           title: Owner
           type: string
           default: developers
+        target_branch:
+          title: Target branch
+          type: string
+          description: Branch that receives the merge. The existing secure pipeline integrates changes when this branch is updated.
+          default: main
+          pattern: '^[A-Za-z0-9._/-]+$'
+    - title: Change
+      required: [change_name, change_title]
+      properties:
+        change_name:
+          title: Branch name
+          type: string
+          description: Created as feature/<name>. Use a new name each time; GitLab rejects a branch that already exists.
+          default: order-desk
+          pattern: '^[a-z0-9]+(-[a-z0-9]+)*$'
+          maxLength: 24
+        change_title:
+          title: Merge request title
+          type: string
+          default: Update the CDC order desk
+        change_summary:
+          title: What changes
+          type: string
+          default: Adjust the Order Desk change captured from Postgres.
     - title: Image registry
       required: [image_registry]
       properties:
@@ -63,10 +88,11 @@ spec:
         gitlab_group:
           title: GitLab group
           type: string
+          description: Group that already owns the application repository.
           default: developers
   steps:
     - id: template
-      name: Fetch source skeleton
+      name: Prepare the change
       action: fetch:template
       input:
         url: ./skeleton
@@ -86,74 +112,29 @@ spec:
           apicurio_url: https://apicurio.CLUSTER_SUBDOMAIN_PLACEHOLDER
           kafka_bootstrap: rhads-kafka-kafka-bootstrap.kafka.svc:9092
           kafka_topic: ${{ parameters.component_id }}.public.orders
+          change_name: ${{ parameters.change_name }}
+          change_title: ${{ parameters.change_title }}
+          change_summary: ${{ parameters.change_summary }}
+          target_branch: ${{ parameters.target_branch }}
         targetPath: ./${{ parameters.gitlab_group }}-${{ parameters.component_id }}
     - id: publish
-      name: Publish source to GitLab
-      action: publish:gitlab
+      name: Open merge request
+      action: publish:gitlab:merge-request
       input:
         repoUrl: "${{ parameters.repo.host | replace('https://', '') | replace('http://', '') }}?owner=${{ parameters.gitlab_group }}&repo=${{ parameters.component_id }}"
-        repoVisibility: public
-        defaultBranch: main
+        title: ${{ parameters.change_title }}
+        description: |
+          ${{ parameters.change_summary }}
+
+          Branch `feature/${{ parameters.change_name }}` runs the existing secure build (clone, signing check, image, SBOM, ACS, Conforma). Merge into `${{ parameters.target_branch }}` to integrate the change. That update is what refreshes the dev GitOps image.
+        branchName: feature/${{ parameters.change_name }}
+        targetBranchName: ${{ parameters.target_branch }}
         sourcePath: ./${{ parameters.gitlab_group }}-${{ parameters.component_id }}
-        settings:
-          auto_devops_enabled: false
-    - id: register
-      name: Register in catalog
-      action: catalog:register
-      input:
-        repoContentsUrl: ${{ steps.publish.output.repoContentsUrl }}
-        catalogInfoPath: /catalog-info.yaml
-    - id: template-gitops
-      name: Generate GitOps (app of apps)
-      action: fetch:template
-      input:
-        url: ./manifests
-        values:
-          component_id: ${{ parameters.component_id }}
-          source_repository_gitops: https://${{ parameters.repo.host | replace('https://', '') | replace('http://', '') }}/${{ parameters.owner }}/${{ parameters.component_id }}-gitops.git
-          source_repository: https://${{ parameters.repo.host | replace('https://', '') | replace('http://', '') }}/${{ parameters.gitlab_group }}/${{ parameters.component_id }}.git
-          owner: ${{ parameters.owner }}
-          namespace: ${{ parameters.component_id }}-dev
-          image_registry: ${{ parameters.image_registry }}
-          image_host: ${{ parameters.image_host }}
-          image_organization: rhads
-          image_password: backstage
-          image_name: ${{ parameters.component_id }}
-          image_tag: ${{ parameters.image_tag }}
-          gitops_namespace: openshift-gitops
-          gitops_project: default
-          port: 8080
-          cluster_subdomain: CLUSTER_SUBDOMAIN_PLACEHOLDER
-          repository_host: ${{ parameters.repo.host | replace('https://', '') | replace('http://', '') }}
-          dockerfile: ./Dockerfile
-          build_language: go
-          apicurio_url: https://apicurio.CLUSTER_SUBDOMAIN_PLACEHOLDER
-          kafka_bootstrap: rhads-kafka-kafka-bootstrap.kafka.svc:9092
-          db_password: backstage
-        targetPath: ./${{ parameters.owner }}-${{ parameters.component_id }}-gitops
-    - id: publish-gitops
-      name: Publish GitOps repository
-      action: publish:gitlab
-      input:
-        repoUrl: "${{ parameters.repo.host | replace('https://', '') | replace('http://', '') }}?owner=${{ parameters.owner }}&repo=${{ parameters.component_id }}-gitops"
-        repoVisibility: public
-        defaultBranch: main
-        sourcePath: ./${{ parameters.owner }}-${{ parameters.component_id }}-gitops
-        settings:
-          auto_devops_enabled: false
-    - id: create-argocd
-      name: Create Argo CD app-of-apps
-      action: backstage-community-argocd:create-resources
-      input:
-        appName: ${{ parameters.component_id }}-bootstrap
-        argoInstance: main
-        namespace: openshift-gitops
-        repoUrl: https://${{ parameters.repo.host | replace('https://', '') | replace('http://', '') }}/${{ parameters.owner }}/${{ parameters.component_id }}-gitops.git
-        path: argocd/
+        commitAction: auto
+        removeSourceBranch: true
   output:
     links:
+      - title: Merge request
+        url: ${{ steps.publish.output.mergeRequestUrl }}
       - title: Source repository
-        url: ${{ steps.publish.output.remoteUrl }}
-      - title: Catalog
-        icon: catalog
-        entityRef: ${{ steps.register.output.entityRef }}
+        url: https://${{ parameters.repo.host | replace('https://', '') | replace('http://', '') }}/${{ parameters.gitlab_group }}/${{ parameters.component_id }}

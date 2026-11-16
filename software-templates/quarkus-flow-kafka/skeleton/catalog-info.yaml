@@ -16,6 +16,7 @@ metadata:
     # --- Tekton ---
     janus-idp.io/tekton: ${{values.component_id}}
     tekton.dev/cicd : "true"
+    scorecard.io/dora: "true"
     # --- Vault (Developer Hub Vault plugin) ---
     vault.io/secrets-path: apps/${{values.component_id}}
     # --- Quay ---

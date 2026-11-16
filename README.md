@@ -6,7 +6,7 @@
 | --- | --- | --- |
 | **Agentic Trip Planner — LangChain4j/Kafka** | `trip-quarkus` | RHBOQ 3.33 + Red Hat [langchain4j](https://docs.quarkiverse.io/quarkus-langchain4j/dev/) agents + Kafka CloudEvents HITL |
 | **Agentic Trip Planner — Go/Kafka** | `trip-go` | Go + same UI/plan JSON + multi-step MaaS + Kafka HITL; community modules/images (ACS CVEs); switch to `Dockerfile.ubi` for Red Hat UBI |
-| **CDC — Debezium PostgreSQL** | `orders-cdc` | Postgres + shared Debezium + Order Desk UI (write DB → live CDC) + Apicurio + Vault |
+| **CDC — Debezium PostgreSQL** | `orders-cdc` (existing app) | Branch + merge request into the app that already has Postgres, Debezium, Order Desk, and the secure pipeline |
 
 This GitHub repository is the **source of truth for a repeatable install**. Clone it, log in to a cluster, run `./install.sh`. Ansible publishes the working tree to in-cluster GitLab and points Argo CD at that copy.
 

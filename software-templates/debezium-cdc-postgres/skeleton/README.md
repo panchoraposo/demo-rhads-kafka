@@ -1,6 +1,6 @@
 # ${{values.component_id}}
 
-Change Data Capture (CDC) demo generated from the **debezium-cdc-postgres** software template.
+Change Data Capture (CDC) application. Further changes from the **debezium-cdc-postgres** template arrive as a branch and a merge request into this repository.
 
 ## What you get
 

@@ -73,13 +73,18 @@ func (p *Planner) Plan(req model.TripRequest) (*model.TripPlan, error) {
 ---
 %s
 ---
-Recommend the best vehicle for:
+Recommend exactly one rental vehicle. Follow the vehicle-selection skill and return the make and model from the matching row.
+A different destination, trip type, traveler count, budget tier, or preference must change the model.
+The model must be a specific make and model, never only a category such as "SUV" or "MPV".
+The type must be one of compact, estate, suv, mpv, or convertible.
 - Destination: %s
 - Trip type: %s
 - Travelers: %s
 - Budget: %s
 - Preferences: %s
 
+The budget names the traveler's currency. Do not quote prices in a different currency.
+In the reasoning, name the destination cue, trip type, traveler count, and budget tier that selected this model.
 Return JSON: {"type":"...","model":"...","reasoning":"..."}`,
 				skills, req.Destination, req.TripType, travelers, req.Budget, req.Preferences),
 			&vehicle)
@@ -94,10 +99,11 @@ Return JSON: {"type":"...","model":"...","reasoning":"..."}`,
 %s
 ---
 Plan a %s-day %s trip to %s starting %s for %s travelers. Preferences: %s. Budget: %s.
+Any price you mention must use %s. Euro figures in the guidance are workshop examples; convert them unless that currency is euros (EUR).
 
 Return JSON:
 {"routeOverview":"...","itinerary":[{"day":1,"title":"...","description":"...","overnightStop":"..."}]}`,
-				skills, days, req.TripType, req.Destination, req.StartDate, travelers, req.Preferences, req.Budget),
+				skills, days, req.TripType, req.Destination, req.StartDate, travelers, req.Preferences, req.Budget, currencyLabel(req.Currency)),
 			&itinerary)
 	}()
 	wg.Wait()
@@ -119,13 +125,18 @@ Return JSON:
 	if err := p.chatJSON(
 		"You estimate realistic trip costs. Reply with JSON only.",
 		fmt.Sprintf(`Estimate costs for a %s-day trip for %s travelers with budget %s.
+Write every amount in %s. Do not use another currency.
+Fictional workshop daily rental rates, already in that currency: %s.
+Pick the closest category and use that daily rate for vehiclePerDay. Include daily rate times days once in the total.
+Estimate fuel, tolls, accommodation, food, and activities for the whole trip in the same currency.
 Vehicle: %+v
 Route: %s
 Itinerary days: %d
 
-Return JSON:
+Return JSON with amounts prefixed by the currency code:
 {"vehiclePerDay":"...","fuel":"...","tolls":"...","accommodation":"...","food":"...","activities":"...","total":"..."}`,
-			days, travelers, req.Budget, vehicle, itinerary.RouteOverview, len(itinerary.Itinerary)),
+			days, travelers, req.Budget, currencyLabel(req.Currency), rentalRateHint(req.Currency),
+			vehicle, itinerary.RouteOverview, len(itinerary.Itinerary)),
 		&costs); err != nil {
 		return nil, fmt.Errorf("cost estimator: %w", err)
 	}
@@ -161,6 +172,8 @@ func (p *Planner) reviewVehicle(vehicle model.VehicleRecommendation, req model.T
 Current: %+v
 Evaluation score: %.2f suggestions: %s
 Trip type: %s travelers: %s budget: %s destination: %s preferences: %s
+If the current make and model already fits the destination, traveler count, and budget tier, keep that exact model.
+Do not replace it with a generic SUV, a generic MPV, or a vehicle you would recommend for every trip.
 
 Return JSON: {"type":"...","model":"...","reasoning":"..."}`,
 				vehicle, eval.Score, eval.Suggestions, req.TripType, travelers, req.Budget, req.Destination, req.Preferences),
@@ -185,7 +198,7 @@ func (p *Planner) evaluate(vehicle model.VehicleRecommendation, req model.TripRe
 	go func() {
 		defer wg.Done()
 		e1 = p.chatJSON("Score vehicle comfort 1-10. JSON only.",
-			fmt.Sprintf(`Vehicle %+v tripType=%s travelers=%s days=%s. Return {"score":8.0,"suggestions":"..."}`,
+			fmt.Sprintf(`Vehicle %+v tripType=%s travelers=%s days=%s. Score 8 or higher when it can seat the travelers and carry ordinary luggage. Do not ask for a larger or more generic vehicle only because another style exists. Return {"score":8.0,"suggestions":"..."}`,
 				vehicle, req.TripType, travelers, days), &comfort)
 	}()
 	go func() {
@@ -265,6 +278,54 @@ func (p *Planner) loadSkill(rel, fallback string) string {
 		return fallback
 	}
 	return string(b)
+}
+
+func currencyCode(code string) string {
+	switch strings.ToUpper(strings.TrimSpace(code)) {
+	case "USD", "CLP", "ARS":
+		return strings.ToUpper(strings.TrimSpace(code))
+	default:
+		return "EUR"
+	}
+}
+
+func currencyLabel(code string) string {
+	switch currencyCode(code) {
+	case "USD":
+		return "US dollars (USD)"
+	case "CLP":
+		return "Chilean pesos (CLP)"
+	case "ARS":
+		return "Argentine pesos (ARS)"
+	default:
+		return "euros (EUR)"
+	}
+}
+
+// convertFromEur applies the same fictional workshop scale as the Quarkus rental tool.
+func convertFromEur(eurAmount int, code string) int {
+	switch currencyCode(code) {
+	case "USD":
+		return (eurAmount*11 + 5) / 10
+	case "CLP":
+		return eurAmount * 1000
+	case "ARS":
+		return eurAmount * 1200
+	default:
+		return eurAmount
+	}
+}
+
+func rentalRateHint(code string) string {
+	rates := []struct {
+		name string
+		eur  int
+	}{{"compact", 45}, {"estate", 65}, {"suv", 80}, {"mpv", 90}}
+	parts := make([]string, 0, len(rates))
+	for _, rate := range rates {
+		parts = append(parts, fmt.Sprintf("%s %d", rate.name, convertFromEur(rate.eur, code)))
+	}
+	return strings.Join(parts, ", ")
 }
 
 func normalizeTripType(tripType string) string {

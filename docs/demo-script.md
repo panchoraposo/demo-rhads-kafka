@@ -43,14 +43,16 @@ Shared password: `backstage`. Keep `https://dashboard.apps.<cluster>/` open.
 
 ## 4. CDC — Debezium PostgreSQL (6 min)
 
-1. Create → **CDC — Debezium PostgreSQL** (`orders-cdc`).
-2. Argo apps: `orders-cdc-build`, `orders-cdc-cdc` (Postgres + connector Job), `orders-cdc-dev|staging|prod`.
-3. Catalog → Overview: Vault card + API entity **order-change** → Apicurio UI.
-4. Open **CDC Order Desk** (dev Route), or in Dev Spaces run **Run Order Desk (8080)** — it reads `application.properties` (env overrides the file).
-5. Click **New order** — pipeline strip pulses; event feed shows `CREATE` with capture latency.
-6. Select the row → **Mark paid** — `UPDATE` with expandable before → after.
-7. Before the signed commit: **Configure Sigstore git commit signing (gitsign + RHTAS TUF)**, then commit and **Verify Sigstore-signed HEAD**.
-8. Optional: Kafka Console topic `orders-cdc.public.orders`; Apicurio artifact from the header link.
+1. The CDC application **`orders-cdc`** is already in the catalog, with its GitOps apps and secure pipeline. This template does not create another application.
+2. Create → **CDC — Debezium PostgreSQL**. Application `orders-cdc`, target branch `main`, branch name for example `order-desk`.
+3. Open the merge request. Branch `feature/order-desk` runs the existing secure build and does not move the dev image. Merge into `main` to integrate; that push updates dev GitOps.
+4. Argo apps already present: `orders-cdc-build`, `orders-cdc-cdc` (Postgres + connector Job), `orders-cdc-dev|staging|prod`.
+5. Catalog → Overview: Vault card + API entity **order-change** → Apicurio UI.
+6. Open **CDC Order Desk** (dev Route), or in Dev Spaces run **Run Order Desk (8080)** — it reads `application.properties` (env overrides the file).
+7. Click **New order** — pipeline strip pulses; event feed shows `CREATE` with capture latency.
+8. Select the row → **Mark paid** — `UPDATE` with expandable before → after.
+9. Before the signed commit: **Configure Sigstore git commit signing (gitsign + RHTAS TUF)**, then commit and **Verify Sigstore-signed HEAD**.
+10. Optional: Kafka Console topic `orders-cdc.public.orders`; Apicurio artifact from the header link.
 
 No debug-pod SQL on stage — the UI writes Postgres and Debezium captures it.
 

@@ -312,7 +312,31 @@ enabled:
 
 # DORA reads Tekton PipelineRuns. dev, staging, and production namespaces
 # count, because this demo records delivery as the component PipelineRun.
+# The plugin default is hourly. A promote has to show up while the demo
+# is still on the homepage, so the four metrics refresh every two minutes.
 scorecard:
+  metricProviders:
+    dora:
+      deploymentFrequency:
+        schedule:
+          frequency: { minutes: 2 }
+          timeout: { minutes: 3 }
+          initialDelay: { seconds: 20 }
+      medianLeadTimeForChanges:
+        schedule:
+          frequency: { minutes: 2 }
+          timeout: { minutes: 3 }
+          initialDelay: { seconds: 20 }
+      changeFailureRate:
+        schedule:
+          frequency: { minutes: 2 }
+          timeout: { minutes: 3 }
+          initialDelay: { seconds: 20 }
+      medianTimeToRestore:
+        schedule:
+          frequency: { minutes: 2 }
+          timeout: { minutes: 3 }
+          initialDelay: { seconds: 20 }
   plugins:
     dora:
       productionEnvironments:

@@ -18,14 +18,20 @@ public interface VehicleAdvisorAgent {
             ---
             {skillGuidance}
             ---
-            Based on the guidance and the trip details below, recommend the most suitable vehicle.
-            Consider the destination terrain, trip type, number of travelers, and budget.
+            Based on the guidance and the trip details below, recommend exactly one rental vehicle.
+            Follow the vehicle-selection skill and return the make and model from the matching row.
+            A different destination, trip type, traveler count, budget tier, or preference must change the model.
+            The model field must be a specific make and model, never only a category such as "SUV" or "MPV".
+            The type field must be one of compact, estate, suv, mpv, or convertible.
 
             - Destination: {destination}
             - Trip type: {tripType}
             - Number of travelers: {travelers}
             - Budget: {budget}
             - Additional preferences: {preferences}
+
+            The budget names the traveler's currency. Do not quote prices in a different currency.
+            In the reasoning, name the destination cue, trip type, traveler count, and budget tier that selected this model.
             """)
     @Agent(description = "Recommends the best vehicle for the trip based on destination, travelers, and budget",
            outputKey = "vehicle")

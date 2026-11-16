@@ -7,6 +7,8 @@ spec:
     - name: git-revision
     - name: git-repo-url
     - name: image-tag
+    - name: git-ref
+      default: refs/heads/main
   resourcetemplates:
     - apiVersion: tekton.dev/v1
       kind: PipelineRun
@@ -70,6 +72,7 @@ spec:
           - { name: source-repo, value: $(tt.params.git-repo-url) }
           - { name: source-branch, value: $(tt.params.git-revision) }
           - { name: image-tag, value: $(tt.params.image-tag) }
+          - { name: git-ref, value: $(tt.params.git-ref) }
           - { name: output-image, value: {{ include "image.dev-url" . | quote }} }
           - { name: gitops-repo, value: {{ .Values.git.gitopsRepo | quote }} }
           - { name: component-id, value: {{ include "rhads-build.name" . | quote }} }

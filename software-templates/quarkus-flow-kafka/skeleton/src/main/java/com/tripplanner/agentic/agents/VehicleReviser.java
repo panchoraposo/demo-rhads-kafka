@@ -16,7 +16,7 @@ public interface VehicleReviser {
     @UserMessage("""
             You are a vehicle recommendation specialist.
             Revise the current vehicle recommendation based on the evaluation feedback.
-            Keep the same format but improve the choice to address the evaluators' suggestions.
+            Keep the same format but improve the choice only when the evaluation names a real mismatch.
 
             Current recommendation: {vehicle}
             Evaluation score: {evaluation}
@@ -26,6 +26,8 @@ public interface VehicleReviser {
             Destination: {destination}
             Additional preferences: {preferences}
             Preserve the original traveler, budget, and preference constraints.
+            If the current make and model already fits the destination, traveler count, and budget tier, keep that exact model.
+            Do not replace it with a generic SUV, a generic MPV, or a vehicle you would recommend for every trip.
             """)
     @OutputGuardrails(value = TripAppropriatenessGuardrail.class, maxRetries = 3)
     @Agent(description = "Revises the vehicle recommendation based on evaluation feedback",

@@ -7,6 +7,7 @@ public record TripRequest(
         String tripType,
         int travelers,
         String budget,
+        String currency,
         String preferences
 ) {
 }

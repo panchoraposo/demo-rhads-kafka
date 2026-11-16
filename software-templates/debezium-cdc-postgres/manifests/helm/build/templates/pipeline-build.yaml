@@ -12,6 +12,10 @@ spec:
     - name: source-branch
       type: string
       default: {{ .Values.git.branch }}
+    - name: git-ref
+      type: string
+      description: Full Git ref. Dev GitOps is updated only for refs/heads/main.
+      default: refs/heads/main
     - name: dockerfile
       type: string
       default: {{ .Values.image.dockerfile }}
@@ -213,6 +217,10 @@ spec:
 
     - name: update-gitops-dev
       runAfter: [conforma-dev]
+      when:
+        - input: $(params.git-ref)
+          operator: in
+          values: ["refs/heads/main"]
       taskRef:
         resolver: cluster
         params:

@@ -2,6 +2,55 @@ const tomorrow = new Date();
 tomorrow.setDate(tomorrow.getDate() + 1);
 document.getElementById("startDate").value = tomorrow.toISOString().split("T")[0];
 
+const BUDGET_TIERS = [
+    { id: "economy", name: "Economy", min: 500, max: 1000 },
+    { id: "moderate", name: "Moderate", min: 1000, max: 2500 },
+    { id: "comfortable", name: "Comfortable", min: 2500, max: 5000 },
+    { id: "luxury", name: "Luxury", min: 5000, max: null }
+];
+
+function currencyFromRequest(request) {
+    const known = ["EUR", "USD", "CLP", "ARS"];
+    const code = (request.currency || "").toUpperCase();
+    if (known.includes(code)) return code;
+    const budget = request.budget || "";
+    return known.find(item => budget.includes(item) || (item === "EUR" && budget.includes("€"))) || "EUR";
+}
+
+function formatBudgetAmount(amount, currency) {
+    const scaled = currency === "USD" ? Math.round(amount * 11 / 10)
+        : currency === "CLP" ? amount * 1000
+        : currency === "ARS" ? amount * 1200
+        : amount;
+    return scaled.toLocaleString("en-US");
+}
+
+function budgetOptionValue(tier, currency) {
+    const range = tier.max == null
+        ? `${currency} ${formatBudgetAmount(tier.min, currency)}+`
+        : `${currency} ${formatBudgetAmount(tier.min, currency)}-${formatBudgetAmount(tier.max, currency)}`;
+    return `${tier.id} (${range})`;
+}
+
+function renderBudgetOptions(currency, selectedValue) {
+    const select = document.getElementById("budget");
+    const current = selectedValue || select.value || "";
+    const tier = BUDGET_TIERS.find(item => current.startsWith(item.id)) || BUDGET_TIERS[2];
+    select.innerHTML = BUDGET_TIERS.map(item => {
+        const value = budgetOptionValue(item, currency);
+        const label = item.max == null
+            ? `${currency} ${formatBudgetAmount(item.min, currency)}+`
+            : `${currency} ${formatBudgetAmount(item.min, currency)}–${formatBudgetAmount(item.max, currency)}`;
+        return `<option value="${value}">${item.name} (${label})</option>`;
+    }).join("");
+    select.value = budgetOptionValue(tier, currency);
+}
+
+document.getElementById("currency").addEventListener("change", () => {
+    renderBudgetOptions(document.getElementById("currency").value);
+});
+renderBudgetOptions("EUR");
+
 const FETCH_TIMEOUT = 15000;
 const PLANNING_TIMEOUT = 135000;
 const POLLING_TIMEOUT = 120000;
@@ -104,9 +153,13 @@ async function restoreLatestPlan() {
 }
 
 function restoreForm() {
-    for (const key of ["destination", "startDate", "days", "travelers", "tripType", "budget", "preferences"]) {
-        if (currentTrip.request?.[key] != null) document.getElementById(key).value = currentTrip.request[key];
+    const request = currentTrip.request || {};
+    for (const key of ["destination", "startDate", "days", "travelers", "tripType", "preferences"]) {
+        if (request[key] != null) document.getElementById(key).value = request[key];
     }
+    const currency = currencyFromRequest(request);
+    document.getElementById("currency").value = currency;
+    renderBudgetOptions(currency, request.budget);
 }
 
 // Do not replace form edits with a late restore response.
@@ -158,6 +211,7 @@ async function planTrip() {
         tripType: document.getElementById("tripType").value,
         travelers: parseInt(document.getElementById("travelers").value, 10),
         budget: document.getElementById("budget").value,
+        currency: document.getElementById("currency").value,
         preferences: document.getElementById("preferences").value
     };
 

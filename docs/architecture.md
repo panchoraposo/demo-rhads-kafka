@@ -44,7 +44,7 @@ Three scaffolder templates are registered in `catalog/templates.yaml`:
 
 1. **quarkus-flow-kafka** — Trip planner from the [LangChain4j workshop step-04](https://quarkus.io/quarkus-workshop-langchain4j/section-3/step-04/) pattern: Red Hat langchain4j agents + Kafka CloudEvents HITL + MaaS.
 2. **go-flow-kafka** — Same UI, plan JSON, multi-step MaaS agents, and CloudEvents HITL as Quarkus; hand-rolled Kafka engine with structured logs; community Go modules for RHDA/TPA/ACS CVEs.
-3. **debezium-cdc-postgres** — Postgres + Debezium CDC connector (shared Connect) + Go consumer UI + Apicurio schema registration. Developers never build KafkaConnect themselves.
+3. **debezium-cdc-postgres** — change proposal against an existing CDC application. Opens a branch and a GitLab merge request; the branch runs that application's secure pipeline, and the merge integrates the change. Developers never build KafkaConnect themselves.
 
 ```mermaid
 flowchart TD

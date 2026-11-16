@@ -85,6 +85,41 @@ spec:
           --source-version "${SOURCE_VERSION}" \
           -o "cyclonedx-json=$(workspaces.source.path)/sbom/sbom.cdx.json" \
           -o "spdx-json=$(workspaces.source.path)/sbom/sbom.spdx.json"
+        # Syft labels Hummingbird as cpe:2.3:a:redhat:hummingbird:1.
+        # TPA treats version 1 as the whole product and lists every CVE
+        # affected on Hummingbird, including RPMs that are not in the image.
+        # ACS inventories the RPMs. Drop only that product CPE. The distro
+        # version (for example 20251124) stays on the operating-system component.
+        python3 - <<'PY'
+        import json
+        path = "$(workspaces.source.path)/sbom/sbom.cdx.json"
+        data = json.load(open(path))
+        dropped = []
+        for comp in data.get("components") or []:
+            if comp.get("type") != "operating-system":
+                continue
+            cpe = comp.get("cpe") or ""
+            if "redhat:hummingbird:1" not in cpe:
+                continue
+            dropped.append(f"{comp.get('name')} {comp.get('version')} {cpe}")
+            comp.pop("cpe", None)
+            kept = []
+            for prop in comp.get("properties") or []:
+                val = prop.get("value") or ""
+                if prop.get("name") == "syft:cpe23" and "redhat:hummingbird" in val:
+                    continue
+                kept.append(prop)
+            if "properties" in comp:
+                comp["properties"] = kept
+        if dropped:
+            with open(path, "w") as out:
+                json.dump(data, out)
+            print("dropped Hummingbird product CPE:")
+            for line in dropped:
+                print(f"  - {line}")
+        else:
+            print("no Hummingbird product CPE to drop")
+        PY
         echo -n "$(workspaces.source.path)/sbom/sbom.cdx.json" > "$(results.SBOM_PATH.path)"
         if [ -n "${TPA_URL}" ]; then
           tpa="${TPA_URL%/}"

@@ -137,13 +137,17 @@
             </select>
         </div>
         <div class="form-group">
-            <label for="budget">Budget Range</label>
-            <select id="budget">
-                <option value="economy (€500-€1000)">Economy (&euro;500&ndash;&euro;1,000)</option>
-                <option value="moderate (€1000-€2500)">Moderate (&euro;1,000&ndash;&euro;2,500)</option>
-                <option value="comfortable (€2500-€5000)" selected>Comfortable (&euro;2,500&ndash;&euro;5,000)</option>
-                <option value="luxury (€5000+)">Luxury (&euro;5,000+)</option>
+            <label for="currency">Currency</label>
+            <select id="currency">
+                <option value="EUR" selected>Euros (EUR)</option>
+                <option value="USD">US dollars (USD)</option>
+                <option value="CLP">Chilean pesos (CLP)</option>
+                <option value="ARS">Argentine pesos (ARS)</option>
             </select>
+        </div>
+        <div class="form-group">
+            <label for="budget">Budget Range</label>
+            <select id="budget"></select>
         </div>
         <div class="form-group">
             <label for="preferences">Additional Preferences</label>

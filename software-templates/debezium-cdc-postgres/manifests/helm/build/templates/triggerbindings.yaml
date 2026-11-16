@@ -10,6 +10,8 @@ spec:
       value: $(body.after)
     - name: image-tag
       value: $(body.after)
+    - name: git-ref
+      value: $(body.ref)
 ---
 apiVersion: triggers.tekton.dev/v1beta1
 kind: TriggerBinding

@@ -12,6 +12,7 @@ metadata:
     backstage.io/kubernetes-cluster: demo-cluster
     janus-idp.io/tekton: ${{values.component_id}}
     tekton.dev/cicd: "true"
+    scorecard.io/dora: "true"
     # HashiCorp Vault plugin — EntityVaultCard on Overview
     vault.io/secrets-path: apps/${{values.component_id}}
     quay.io/repository-slug: '${{values.image_organization}}/${{values.component_id}}'

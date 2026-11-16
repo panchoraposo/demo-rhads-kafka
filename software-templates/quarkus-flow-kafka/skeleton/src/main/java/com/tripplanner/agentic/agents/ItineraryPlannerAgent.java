@@ -27,6 +27,10 @@ public interface ItineraryPlannerAgent {
             - Duration: {days} days
             - Trip type: {tripType}
             - Additional preferences: {preferences}
+            - Budget currency: {currency}
+
+            Any price you mention must use that currency. Euro figures in the guidance are workshop examples;
+            convert them unless the currency is euros (EUR).
             """)
     @Agent(description = "Creates a detailed day-by-day itinerary and route overview",
            outputKey = "itineraryResult")
@@ -36,5 +40,6 @@ public interface ItineraryPlannerAgent {
                                   String days,
                                   String tripType,
                                   String preferences,
-                                  String skillGuidance);
+                                  String skillGuidance,
+                                  String currency);
 }

@@ -7,6 +7,7 @@ type TripRequest struct {
 	TripType    string `json:"tripType"`
 	Travelers   int    `json:"travelers"`
 	Budget      string `json:"budget"`
+	Currency    string `json:"currency"`
 	Preferences string `json:"preferences"`
 }
 
